@@ -163,6 +163,7 @@ python bench.py serve [--host 0.0.0.0] [--port 8765]   # UI; 0.0.0.0 for network
 python bench.py run [options]                          # generate
 python bench.py check                                  # validate all model workflows
 python bench.py import ~/ComfyUI/output --since 2026-10-01
+python bench.py import-url https://civitai.com/images/123   # prompt + metadata from a Civitai picture
 python bench.py report                                 # static read-only copy: results/index.html
 python -m unittest -v                                  # tests (from the repo root)
 ```
@@ -180,6 +181,8 @@ python -m unittest -v                                  # tests (from the repo ro
 | `--dry-run` | fill workflows only, send nothing |
 
 `import` reads PNGs with ComfyUI metadata (prompt, negative, seed, model, sampler values) into the gallery as "own image". Benchmark images and files imported before are skipped, so it is safe to run repeatedly.
+
+`import-url` takes a Civitai picture URL (`civitai.com/images/<id>` or `/posts/<id>`; `civitai.red` works the same way, mature pictures included): the image and its generation parameters land in the gallery as an "own image", and a ready-made entry (`category: Civitai`, prompt, negative, size, seed, steps/cfg/sampler) is added to `prompts.yaml` unless that id already exists. Sampler and scheduler names are translated to ComfyUI's (`DPM++ 2M Karras` → `dpmpp_2m` + `karras`); names core ComfyUI does not know are left out, as are placeholders like seed `-1` or `0` steps. No API token needed. In the browser, the **Civitai import** button in the header opens a dialog: paste the URL and a preview loads – picture, prompt and parameters – where the prompt ID and category can still be changed before anything is written.
 
 Global options `--config` and `--prompts-file` point to other files.
 

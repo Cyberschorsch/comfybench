@@ -1461,6 +1461,253 @@ def cmd_import(args):
     print(f"{added} imported, {dup} already present, {nometa} skipped without ComfyUI metadata")
 
 
+# ================================================================ civitai import
+
+CIVITAI_SITES = ("civitai.com", "civitai.red")   # .red is the mature-content site: same ids, same API
+CIVITAI_PROMPT_PARAMS = ("steps", "cfg", "sampler", "scheduler", "denoise", "guidance")
+CIVITAI_EXTS = {".png", ".jpg", ".jpeg", ".webp"}
+# Core ComfyUI KSampler names (comfy/samplers.py: SAMPLER_NAMES, SCHEDULER_HANDLERS)
+COMFY_SAMPLERS = (
+    "euler", "euler_cfg_pp", "euler_ancestral", "euler_ancestral_cfg_pp", "heun", "heunpp2",
+    "exp_heun_2_x0", "exp_heun_2_x0_sde", "dpm_2", "dpm_2_ancestral", "lms", "dpm_fast", "dpm_adaptive",
+    "dpmpp_2s_ancestral", "dpmpp_2s_ancestral_cfg_pp", "dpmpp_sde", "dpmpp_sde_gpu", "dpmpp_2m",
+    "dpmpp_2m_cfg_pp", "dpmpp_2m_sde", "dpmpp_2m_sde_gpu", "dpmpp_2m_sde_heun", "dpmpp_2m_sde_heun_gpu",
+    "dpmpp_3m_sde", "dpmpp_3m_sde_gpu", "ddpm", "lcm", "ipndm", "ipndm_v", "deis", "cfgpp_ud10_ab",
+    "res_multistep", "res_multistep_cfg_pp", "res_multistep_ancestral", "res_multistep_ancestral_cfg_pp",
+    "gradient_estimation", "gradient_estimation_cfg_pp", "er_sde", "seeds_2", "seeds_3", "sa_solver",
+    "sa_solver_pece", "ddim", "uni_pc", "uni_pc_bh2")
+COMFY_SCHEDULERS = ("simple", "sgm_uniform", "karras", "exponential", "ddim_uniform", "beta", "normal",
+                    "linear_quadratic", "kl_optimal")
+
+
+def _sampler_key(name):
+    """Spelling-independent lookup key: "Euler_A" and "euler a" → "euler a"."""
+    return re.sub(r"[\s_]+", " ", name.strip().lower()) if isinstance(name, str) else ""
+
+
+# ComfyUI names in any spelling, plus the A1111 / Forge names Civitai reports
+SAMPLER_ALIASES = {**{_sampler_key(n): n for n in COMFY_SAMPLERS},
+                   "euler a": "euler_ancestral", "dpm2": "dpm_2", "dpm2 a": "dpm_2_ancestral",
+                   "dpm++ 2s a": "dpmpp_2s_ancestral", "dpm++ 2m": "dpmpp_2m", "dpm++ sde": "dpmpp_sde",
+                   "dpm++ 2m sde": "dpmpp_2m_sde", "dpm++ 2m sde heun": "dpmpp_2m_sde_heun",
+                   "dpm++ 3m sde": "dpmpp_3m_sde", "unipc": "uni_pc"}
+SCHEDULER_ALIASES = {**{_sampler_key(n): n for n in COMFY_SCHEDULERS}, "ddim": "ddim_uniform"}
+
+
+def parse_civitai_url(url):
+    """A Civitai picture page URL → (site, API query parameter, id), e.g. ("civitai.com", "imageId", "123")."""
+    u = str(url).strip()
+    if not re.match(r"^https?://", u, re.I):
+        u = "https://" + u
+    p = urlparse(u)
+    host = (p.hostname or "").lower()
+    site = host[4:] if host.startswith("www.") else host
+    if site not in CIVITAI_SITES:
+        if any(host.endswith("." + s) for s in CIVITAI_SITES):
+            raise BenchError("That is a direct file link – paste the picture's page URL, e.g. https://civitai.com/images/<id>")
+        raise BenchError("Not a civitai.com or civitai.red URL")
+    m = re.match(r"^/(images|posts)/(\d+)/?$", p.path)
+    if not m:
+        raise BenchError(f"Expected a picture URL like https://{site}/images/<id> or https://{site}/posts/<id>")
+    return site, ("imageId" if m.group(1) == "images" else "postId"), m.group(2)
+
+
+def civitai_fetch(url, timeout=20):
+    """The image record (with metadata) behind a Civitai picture URL."""
+    site, key, ident = parse_civitai_url(url)
+    for attempt in range(2):
+        try:
+            # nsfw=X: without it mature pictures are filtered out – the user picked this one explicitly
+            r = requests.get(f"https://{site}/api/v1/images",
+                             params={key: ident, "withMeta": "true", "nsfw": "X"}, timeout=timeout)
+        except requests.exceptions.RequestException as e:
+            raise BenchError(f"Civitai request failed: {e}") from None
+        if r.status_code == 429 and attempt == 0:   # respect Retry-After, then give up
+            try:
+                wait = float(r.headers.get("Retry-After") or 2)
+            except ValueError:
+                wait = 2
+            time.sleep(min(wait, 30))
+            continue
+        if r.status_code != 200:
+            raise BenchError(f"Civitai answered HTTP {r.status_code}")
+        try:
+            items = (r.json() or {}).get("items") or []
+        except ValueError:
+            raise BenchError("Civitai sent an unexpected response") from None
+        if not items:
+            raise BenchError("No image found for this URL (deleted, unlisted or hidden for anonymous access)")
+        return items[0]
+    raise BenchError("Civitai is rate-limiting (HTTP 429) – try again in a moment")
+
+
+def civitai_sampler(sampler, scheduler):
+    """(ComfyUI sampler, ComfyUI scheduler) for names as Civitai reports them; None for what
+    core ComfyUI does not have (e.g. "Restart", or a model name from Civitai's own generator)."""
+    sch = SCHEDULER_ALIASES.get(_sampler_key(scheduler))
+    s = _sampler_key(sampler)
+    if s and s not in SAMPLER_ALIASES:
+        for alias, name in SCHEDULER_ALIASES.items():   # combined names: "DPM++ 2M Karras", "euler_simple"
+            if s.endswith(" " + alias) and s[:-len(alias) - 1] in SAMPLER_ALIASES:
+                s, sch = s[:-len(alias) - 1], sch or name
+                break
+    return SAMPLER_ALIASES.get(s), sch
+
+
+def civitai_extract(item):
+    """(positive, negative, seed, model, params, (width, height)) of a Civitai image item.
+    A ComfyUI graph in meta.comfy is ground truth; flat A1111-style keys fill the rest."""
+    meta = item.get("meta")
+    if isinstance(meta, dict) and isinstance(meta.get("meta"), dict):
+        meta = meta["meta"]        # ?imageId=… returns {id, meta: {…}}, postId queries return meta flat
+    meta = meta if isinstance(meta, dict) else {}
+
+    def text(v):
+        return v.strip() if isinstance(v, str) and v.strip() else None
+
+    cpos = cneg = cmodel = None
+    cseed, cparams = None, {}
+    comfy = meta.get("comfy")
+    if comfy:
+        try:
+            graph = json.loads(comfy) if isinstance(comfy, str) else comfy
+            api = graph.get("prompt") if isinstance(graph, dict) else None
+            if isinstance(api, dict) and api:
+                cpos, cneg, cseed, cmodel, cparams = extract_meta(api)
+                cparams = {("sampler" if k == "sampler_name" else k): v for k, v in cparams.items()}
+        except (ValueError, TypeError, AttributeError):
+            pass                    # malformed meta.comfy – fall back to the flat keys
+    pos = text(cpos) or text(meta.get("prompt"))
+    neg = text(cneg) or text(meta.get("negativePrompt"))
+    model = text(cmodel) or text(meta.get("Model"))
+    if not isinstance(cseed, int):
+        try:
+            cseed = int(meta["seed"]) if meta.get("seed") is not None else None
+        except (TypeError, ValueError):
+            cseed = None
+    seed = cseed if cseed is None or cseed >= 0 else None   # -1 = "random", not reproducible
+    params = dict(cparams)
+    for src, dst in (("steps", "steps"), ("cfgScale", "cfg"), ("sampler", "sampler"),
+                     ("Schedule type", "scheduler"), ("Denoising strength", "denoise"),
+                     ("denoise", "denoise")):
+        v = meta.get(src)
+        if dst in ("steps", "cfg") and isinstance(v, (int, float)) and v <= 0:
+            continue                 # placeholders of Civitai's generator for API models (OpenAI etc.)
+        if dst not in params and isinstance(v, (int, float, str)) and not isinstance(v, bool) and str(v).strip():
+            params[dst] = v
+    sampler, scheduler = civitai_sampler(params.pop("sampler", None), params.pop("scheduler", None))
+    params.update({k: v for k, v in (("sampler", sampler), ("scheduler", scheduler)) if v})
+    w, h = item.get("width"), item.get("height")
+    m = re.match(r"^\s*(\d+)\s*[x×]\s*(\d+)\s*$", str(meta.get("Size") or ""))
+    if m:                            # the generation size, not a resized upload
+        w, h = int(m.group(1)), int(m.group(2))
+    if not isinstance(w, int) or not isinstance(h, int):
+        w = h = None
+    return pos, neg, seed, model, params, (w, h)
+
+
+def civitai_read(url):
+    """(image item, (pos, neg, seed, model, params, (w, h))) behind a picture URL.
+    Raises BenchError when the uploader shared no prompt – nothing can be benchmarked then."""
+    item = civitai_fetch(url)
+    data = civitai_extract(item)
+    if not data[0]:
+        raise BenchError("This picture has no shared prompt (the uploader did not include metadata)")
+    return item, data
+
+
+def civitai_preview(url):
+    """Metadata for a Civitai picture URL – no image download, nothing written."""
+    item, (pos, neg, seed, model, params, (w, h)) = civitai_read(url)
+    image_id = item.get("id")
+    img = str(item.get("url") or "")
+    return {"url": f"https://{parse_civitai_url(url)[0]}/images/{image_id}", "prompt_id": f"civitai-{image_id}",
+            "prompt": pos, "negative": neg or "", "seed": seed, "model": model or "",
+            "params": {k: params[k] for k in CIVITAI_PROMPT_PARAMS if k in params},
+            "width": w, "height": h,
+            "thumb": img.replace("original=true", "width=300")}   # CDN preview variant (falls back to the full file)
+
+
+def import_civitai(url, config_path, prompts_path, prompt_id=None, category=None):
+    """One Civitai picture → gallery record + prompts.yaml entry. Returns a summary dict."""
+    if prompt_id is not None:          # a bad custom id must fail before anything is fetched or written
+        prompt_id = str(prompt_id).strip()
+        if not SLUG.match(prompt_id):
+            raise BenchError(f"Prompt ID \"{prompt_id}\": letters, digits, - _ . only")
+    cfg, _ = load_all(config_path, prompts_path)
+    base = out_dir(cfg)
+    store = Store(base)
+    known = {g.get("fingerprint") for g in store.generations()}
+    item, (pos, neg, seed, model, params, (w, h)) = civitai_read(url)
+    image_id = item.get("id")
+    source = f"https://{parse_civitai_url(url)[0]}/images/{image_id}"
+    values = dict(params)
+    if model:
+        values["checkpoint"] = model
+    if w and h:
+        values["width"], values["height"] = w, h
+    image_added = False
+    if f"civitai:{image_id}" not in known:      # re-pasting the same URL is a no-op (and re-downloads nothing)
+        try:
+            r = requests.get(str(item.get("url") or ""), timeout=60)
+        except requests.exceptions.RequestException as e:
+            raise BenchError(f"Could not download the image: {e}") from None
+        if r.status_code != 200:
+            raise BenchError(f"Could not download the image (HTTP {r.status_code})")
+        ext = Path(urlparse(str(item.get("url") or "")).path).suffix.lower()
+        dest = base / "_import" / f"civitai-{image_id}__{uuid.uuid4().hex[:10]}{ext if ext in CIVITAI_EXTS else '.png'}"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(r.content)
+        store.append({
+            "id": uuid.uuid4().hex[:10], "status": "ok", "fingerprint": f"civitai:{image_id}",
+            "mode": "import", "model": "import:" + (Path(model).stem if model else "civitai"),
+            "prompt": "_import", "variant": {}, "variant_key": "",
+            "seed": seed, "text": pos, "negative": neg or "", "values": values,
+            "inputs": {}, "input_src": {}, "files": [dest.relative_to(base).as_posix()],
+            "seconds": None, "at": dt.datetime.now().isoformat(timespec="seconds"), "source": source,
+        })
+        image_added = True
+    pid = prompt_id or f"civitai-{image_id}"
+    prompt_added = False
+    doc = load_yaml(prompts_path)
+    if not any(str(p.get("id")) == pid for p in doc.get("prompts") or []):
+        entry = {"id": pid, "prompt": pos}
+        cat = "Civitai" if category is None else str(category).strip()
+        if cat:                                   # a cleared category stays out of the YAML
+            entry["category"] = cat
+        if neg:
+            entry["negative"] = neg
+        if w and h:
+            entry["width"], entry["height"] = w, h
+        if seed is not None:
+            entry["seeds"] = [seed]
+        pparams = {k: params[k] for k in CIVITAI_PROMPT_PARAMS if k in params}
+        if pparams:
+            entry["params"] = pparams
+        doc["prompts"] = (doc.get("prompts") or []) + [_ordered(entry, PROMPT_KEY_ORDER)]
+        validate_prompts(doc)
+        write_yaml(prompts_path, doc, PROMPTS_HEADER)
+        prompt_added = True
+    return {"url": source, "prompt_id": pid,
+            "image_added": image_added, "prompt_added": prompt_added}
+
+
+def cmd_import_url(args):
+    failed = 0
+    for url in args.urls:
+        try:
+            r = import_civitai(url, args.config, args.prompts_file)
+        except BenchError as e:
+            print(f"{url}: error: {e}")
+            failed += 1
+            continue
+        state = ("image imported" if r["image_added"] else "image already present") + ", " + \
+                ("prompt added to prompts.yaml" if r["prompt_added"] else "prompt already present")
+        print(f"{r['prompt_id']}: {state}")
+    if failed:
+        sys.exit(f"{failed} of {len(args.urls)} URL(s) failed")
+
+
 # ================================================================ Setup (mapping, checking, saving)
 
 STANDARD_KEYS = ["prompt", "negative", "seed", "width", "height", "steps", "cfg", "sampler",
@@ -1849,6 +2096,18 @@ def cmd_serve(args):
                             dest.write_bytes(raw)
                             return self.ok({"path": name})
                         return self.err("unknown upload")
+                    if path == "/api/civitai/preview":
+                        url = str(data.get("url") or "").strip()
+                        if not url:
+                            return self.err("Paste a Civitai picture URL first")
+                        return self.ok(civitai_preview(url))
+                    if path == "/api/import-url":
+                        url = str(data.get("url") or "").strip()
+                        if not url:
+                            return self.err("Paste a Civitai picture URL first")
+                        return self.ok(import_civitai(url, args.config, args.prompts_file,
+                                                      prompt_id=data.get("prompt_id"),
+                                                      category=data.get("category")))
                     if path == "/api/delete":
                         try:
                             gid = str(data.get("id", ""))
@@ -1906,6 +2165,10 @@ def main():
     im.add_argument("folder", help="folder or file, e.g. ComfyUI/output")
     im.add_argument("--since", help="only files from this date on, e.g. 2026-10-01")
     im.set_defaults(func=cmd_import)
+
+    iu = sub.add_parser("import-url", help="import Civitai picture(s): gallery image + prompts.yaml entry")
+    iu.add_argument("urls", nargs="+", help="picture page URL, e.g. https://civitai.com/images/123 or https://civitai.red/images/123")
+    iu.set_defaults(func=cmd_import_url)
 
     ck = sub.add_parser("check", help="trial-fill all model workflows and report problems")
     ck.set_defaults(func=cmd_check)
