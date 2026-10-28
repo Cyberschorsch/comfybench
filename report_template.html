@@ -239,7 +239,7 @@ table.kv td.k{width:170px;font-family:ui-monospace,monospace;font-size:12.5px;pa
 const EMBED = /*__DATA__*/null;
 let D = null, STATIC = false;
 const $ = s => document.querySelector(s);
-const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const ls = {
   get(k){ try { return JSON.parse(localStorage.getItem("cb2:"+k)); } catch(e){ return null; } },
   set(k,v){ try { localStorage.setItem("cb2:"+k, JSON.stringify(v)); } catch(e){} }
@@ -632,7 +632,7 @@ function showLb(){
 }
 function yamlFor(g){
   const p = promptMap.get(g.prompt) || {};
-  const id = [g.prompt === "_import" ? "neu" : g.prompt, ...Object.values(g.variant||{})].join("-").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");
+  const id = [g.prompt === "_import" ? "new" : g.prompt, ...Object.values(g.variant||{})].join("-").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");
   let y = `  - id: ${id}\n`;
   if(p.category) y += `    category: ${JSON.stringify(p.category)}\n`;
   y += `    prompt: ${JSON.stringify(g.text)}\n`;
@@ -1020,7 +1020,7 @@ async function reloadGalleryData(){
 }
 window.addEventListener("beforeunload", e => { if(SU.dirty.config || SU.dirty.prompts){ e.preventDefault(); e.returnValue = ""; } });
 
-// ---------------------------------------------------------------- Dateien
+// ---------------------------------------------------------------- Files
 function pickFile(accept){
   return new Promise(res => { const i = document.createElement("input"); i.type = "file"; i.accept = accept;
     i.onchange = () => res(i.files[0] || null); i.click(); });
@@ -1378,7 +1378,7 @@ function suSets(){
     return `<tr><td style="width:170px"><input type="text" data-setname="${esc(n)}" value="${esc(n)}"><div class="hint">${u.length ? "used by " + u.map(esc).join(", ") : "unused"}</div></td>
       <td><textarea rows="4" data-setvals="${esc(n)}">${esc(defnToText(d))}</textarea></td>
       <td style="width:30px"><button class="x" data-act="del-set" data-set="${esc(n)}">✕</button></td></tr>`; }).join("");
-  return `<div class="su-edit"><h2>Variablen-Sets</h2>
+  return `<div class="su-edit"><h2>Variable Sets</h2>
     <p class="hint" style="margin-top:0">Value lists shared by several prompts, e.g. emotions or age groups. One value per line, or <code>Label: inserted text</code>. In the prompt, choose them as "Set" under variables.</p>
     <table class="kv">${rows}</table><button data-act="add-set" style="margin-top:8px">＋ Set</button></div>`;
 }

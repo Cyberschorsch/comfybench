@@ -49,7 +49,7 @@ class BenchError(Exception):
 INTERNAL_KEYS = {"prompt", "negative", "model_id", "prompt_id", "variant"}
 
 
-# ================================================================ Laden
+# ================================================================ Loading
 
 def load_yaml(path):
     return yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
@@ -97,11 +97,6 @@ def model_modes(model):
     return modes + [m for m, v in (model.get("workflows") or {}).items() if m not in modes and wf_spec(v)]
 
 
-def model_loras(model):
-    """Return LoRA config dict for a model: {name: {name, default_strength, trigger, ...}}."""
-    return model.get("loras") or {}
-
-
 def workflow_for(model, mode):
     wfs = model.get("workflows") or {}
     if mode == "txt2img":
@@ -124,7 +119,7 @@ def load_template(rel):
     return t
 
 
-# ================================================================ Variablen
+# ================================================================ Variables
 
 def norm_var(defn, shared, pid, name):
     if isinstance(defn, str) and defn.startswith("$"):
@@ -232,7 +227,7 @@ def parse_lora_combo(item):
 
 
 def parse_sweep_loras(item, available_loras):
-    """Parse --sweep-loras all|pairs|singles|combo1,combo2..."""
+    """Parse --sweep-loras all|pairs|singles."""
     item = item.strip().lower()
     lora_names = list(available_loras.keys())
     if not lora_names:
@@ -249,8 +244,10 @@ def parse_sweep_loras(item, available_loras):
     elif item == "singles":
         return lora_names
     else:
-        # Explicit comma-separated combos
-        return [c.strip() for c in item.split(",") if c.strip()]
+        raise BenchError("sweep_loras must be all, pairs or singles")
+
+
+BASE_COMBO = {"names": [], "strengths": {}, "triggers": {}, "combo_key": "none", "combo_label": "base"}
 
 
 def expand_lora_combos(combo_strings, available_loras):
@@ -260,7 +257,6 @@ def expand_lora_combos(combo_strings, available_loras):
     skipped) instead of raising, so one run can cover models with different
     LoRA sets. A combo that loses all its names degrades to the base combo.
     """
-    base = {"names": [], "strengths": {}, "triggers": {}, "combo_key": "none", "combo_label": "base"}
     results, skipped, has_base = [], [], False
     for combo_str in combo_strings:
         names, strengths = parse_lora_combo(combo_str)
@@ -272,7 +268,7 @@ def expand_lora_combos(combo_strings, available_loras):
                 skipped.append(n)
         if not known:
             if not has_base:
-                results.append(dict(base))
+                results.append(dict(BASE_COMBO))
                 has_base = True
             continue
         # Build trigger dict for active LoRAs
@@ -297,7 +293,7 @@ def variant_matches(variant, vf):
     return all(n in variant and variant[n]["label"] in labels for n, labels in vf.items())
 
 
-# ================================================================ Platzhalter
+# ================================================================ Placeholders
 
 def inject(obj, values, used):
     """Replace {{name}} in the workflow. If a placeholder stands alone in a field,
@@ -373,7 +369,7 @@ def value_targets(template, mapping):
 
 
 def inject_lora_nodes(wf, lora_combo, model_input_ref):
-    """Dynamisch LoRA-Loader-Nodes in den Workflow injizieren.
+    """Dynamically inject LoRA loader nodes into the workflow.
 
     model_input_ref: (sampler_node_id, input_name) as returned by
     find_model_input_for_sampler. The existing model chain is kept:
@@ -428,7 +424,7 @@ def find_model_input_for_sampler(wf):
     """
     for nid, node in wf.items():
         ct = node.get("class_type", "")
-        if "Sampler" in ct or "KSampler" in ct:
+        if "Sampler" in ct:
             inputs = node.get("inputs", {})
             if "model" in inputs and isinstance(inputs["model"], list):
                 return nid, "model"
@@ -598,18 +594,14 @@ class Inputs:
                 p = (self.base / rel_path).resolve()
                 if not p.is_file():
                     raise FileNotFoundError(f"File of generation {gid} not found: {rel_path}")
-                data = p.read_bytes()
-                name = f"{hashlib.sha1(data).hexdigest()[:10]}_{p.name}"
-                self.info[rel] = {"ref": f"comfybench/{name}", "copy": f"_inputs/{name}", "path": p, "name": name}
-                return self.info[rel]
-
-            # Normal: look for the file in inputs/
-            for b in (ROOT / "inputs", ROOT):
-                p = (b / rel).resolve()
-                if ROOT in p.parents and p.is_file():
-                    break
             else:
-                raise FileNotFoundError(f"Input image \"{rel}\" not found (is it in inputs/? or use gen:<id>)")
+                # Normal: look for the file in inputs/
+                for b in (ROOT / "inputs", ROOT):
+                    p = (b / rel).resolve()
+                    if ROOT in p.parents and p.is_file():
+                        break
+                else:
+                    raise FileNotFoundError(f"Input image \"{rel}\" not found (is it in inputs/? or use gen:<id>)")
             data = p.read_bytes()
             name = f"{hashlib.sha1(data).hexdigest()[:10]}_{p.name}"
             self.info[rel] = {"ref": f"comfybench/{name}", "copy": f"_inputs/{name}", "path": p, "name": name}
@@ -837,7 +829,7 @@ def execute(cfg, prompts, opts, emit, stop=None, abort=None):
         sweep_combos = [dict(zip(msweep, c)) for c in itertools.product(*msweep.values())] if msweep else [{}]
 
         # Get available LoRAs for this model
-        available_loras = model_loras(model)
+        available_loras = model.get("loras") or {}
         
         # Parse LoRA combos for this model
         model_lora_combos = []
@@ -848,11 +840,11 @@ def execute(cfg, prompts, opts, emit, stop=None, abort=None):
             model_lora_combos, skipped_loras = expand_lora_combos(sweep_combo_strings, available_loras)
             # Fallback to base run if no LoRAs available
             if not model_lora_combos:
-                model_lora_combos = [{"names": [], "strengths": {}, "triggers": {}, "combo_key": "none", "combo_label": "base"}]
+                model_lora_combos = [dict(BASE_COMBO)]
         else:
             # No LoRA combos - single run with no LoRAs
             skipped_loras = []
-            model_lora_combos = [{"names": [], "strengths": {}, "triggers": {}, "combo_key": "none", "combo_label": "base"}]
+            model_lora_combos = [dict(BASE_COMBO)]
         for ln in skipped_loras:
             msg = f"{mid}: LoRA \"{ln}\" not defined for this model – skipped"
             if (mid, msg) not in warned:
@@ -888,9 +880,13 @@ def execute(cfg, prompts, opts, emit, stop=None, abort=None):
                 if (mid, wf_rel) not in warned:
                     warned.add((mid, wf_rel))
                     emit("warn", msg=f"{mid}: no sampler model input found for dynamic LoRA injection – LoRAs are ignored")
-                combos = [c for c in combos if not c["names"]] or \
-                    [{"names": [], "strengths": {}, "triggers": {}, "combo_key": "none", "combo_label": "base"}]
-            
+                combos = [c for c in combos if not c["names"]] or [dict(BASE_COMBO)]
+
+            # Image keys the workflow takes, via mapping or {{placeholder}}
+            mapped_img_keys = [k for k in spec["map"] if IMAGE_KEY.match(k)]
+            mapped_img_keys += [k for k in PLACEHOLDER.findall(json.dumps(templates[wf_rel]))
+                                if IMAGE_KEY.match(k)]
+
             for variant in p["_variants"]:
                 if var_filter and not variant_matches(variant, var_filter):
                     continue
@@ -898,10 +894,6 @@ def execute(cfg, prompts, opts, emit, stop=None, abort=None):
                     full = {**variant, **sw}
                     for seed in p.get("seeds", cfg.get("seeds", [42])):
                         for lora_combo in combos:
-                            # Image keys the workflow takes, via mapping or {{placeholder}}
-                            mapped_img_keys = [k for k in spec["map"] if IMAGE_KEY.match(k)]
-                            mapped_img_keys += [k for k in PLACEHOLDER.findall(json.dumps(templates[wf_rel]))
-                                                if IMAGE_KEY.match(k)]
                             jobs.append((mid, model, mode, (templates[wf_rel], spec["map"]), p, full, seed, mapped_img_keys, lora_combo, model_input_ref))
 
     emit("plan", total=len(jobs))
@@ -1238,7 +1230,7 @@ def ui_data(cfg, prompts, store, static):
         "models": [{"id": k, "label": v.get("label", k), "notes": v.get("notes", ""), "modes": model_modes(v),
                     "enabled": v.get("enabled", True) is not False, "keys": model_keys(v),
                     "workflows": v.get("workflows") or {},
-                    "loras": model_loras(v)}
+                    "loras": v.get("loras") or {}}
                    for k, v in cfg["models"].items()],
         "prompts": [{
             "id": p["id"], "category": p.get("category", ""), "prompt": p["prompt"],
@@ -1417,7 +1409,9 @@ def cmd_import(args):
     cfg, _ = load_all(args.config, args.prompts_file)
     base = out_dir(cfg)
     store = Store(base)
-    known = {g.get("fingerprint") for g in store.generations()}
+    gens = store.generations()
+    known = {g.get("fingerprint") for g in gens}
+    seen = {(g.get("source"), g.get("at")) for g in gens if g.get("mode") == "import"}
     src = Path(args.folder).expanduser()
     # Do not import benchmark images (SaveImage prefix comfybench/) twice
     files = [src] if src.is_file() else sorted(
@@ -1427,6 +1421,10 @@ def cmd_import(args):
         files = [f for f in files if f.stat().st_mtime >= cutoff]
     added = dup = nometa = 0
     for f in files:
+        mtime = dt.datetime.fromtimestamp(f.stat().st_mtime).isoformat(timespec="seconds")
+        if (str(f), mtime) in seen:
+            dup += 1
+            continue
         data = f.read_bytes()
         fp = "file:" + hashlib.sha1(data).hexdigest()[:16]
         if fp in known:
@@ -1451,7 +1449,6 @@ def cmd_import(args):
             values["checkpoint"] = model
         if size:
             values["width"], values["height"] = size
-        mtime = dt.datetime.fromtimestamp(f.stat().st_mtime).isoformat(timespec="seconds")
         store.append({
             "id": gid, "status": "ok", "fingerprint": fp, "mode": "import",
             "model": model_id, "prompt": "_import", "variant": {}, "variant_key": "",
@@ -1573,7 +1570,7 @@ def check_setup(cfg, prompts, options=None):
             values = {**(cfg.get("defaults") or {}), **(model.get("params") or {})}
             missing = [f"{k}: {values[k]} not in ComfyUI" for k, choices in (options["models"].get(mid) or {}).items()
                        if values.get(k) is not None and str(values[k]) not in choices]
-            missing += [f"LoRA {n}: {info['name']} not in ComfyUI" for n, info in model_loras(model).items()
+            missing += [f"LoRA {n}: {info['name']} not in ComfyUI" for n, info in (model.get("loras") or {}).items()
                         if isinstance(info, dict) and info.get("name") and info["name"] not in options["loras"]]
             for msg in missing:
                 out.append({"model": mid, "mode": "ComfyUI", "ok": False, "warn": True, "msg": msg})
@@ -1691,10 +1688,6 @@ def validate_prompts(doc):
         expand_variants(p, shared)
 
 
-def ordered_prompt(p):
-    return {**{k: p[k] for k in PROMPT_KEY_ORDER if k in p}, **{k: v for k, v in p.items() if k not in PROMPT_KEY_ORDER}}
-
-
 def list_files(sub, exts):
     d = ROOT / sub
     if not d.is_dir():
@@ -1723,14 +1716,17 @@ def safe_name(name, exts, default):
 # ================================================================ serve
 
 def cmd_serve(args):
-    cfg, _ = load_all(args.config, args.prompts_file)
-    base = out_dir(cfg)
-    store = Store(base)
     runner = Runner(args.config, args.prompts_file)
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *a):
             pass
+
+        def results(self):
+            """Current output dir and store, re-read from config.yaml per request
+            (the gallery follows output_dir changes in Setup without a restart)."""
+            b = out_dir(load_yaml(args.config))
+            return b, Store(b)
 
         def send(self, code, body, ctype="application/json; charset=utf-8", cache=False):
             if isinstance(body, str):
@@ -1751,6 +1747,7 @@ def cmd_serve(args):
                     c, prompts = load_all(args.config, args.prompts_file)
                 except BenchError as e:
                     return self.send(500, json.dumps({"error": str(e)}, ensure_ascii=False))
+                _, store = self.results()
                 return self.send(200, json.dumps(ui_data(c, prompts, store, False), ensure_ascii=False))
             if path == "/api/run/status":
                 return self.send(200, json.dumps(runner.status(), ensure_ascii=False))
@@ -1764,8 +1761,9 @@ def cmd_serve(args):
                 if (ROOT / "inputs").resolve() in f.parents and f.is_file():
                     return self.send(200, f.read_bytes(), mimetypes.guess_type(f.name)[0] or "application/octet-stream")
             if path.startswith("/files/"):
-                f = (base / path[len("/files/"):]).resolve()
-                if base in f.parents and f.is_file():
+                b, _store = self.results()
+                f = (b / path[len("/files/"):]).resolve()
+                if b in f.parents and f.is_file():
                     return self.send(200, f.read_bytes(),
                                      mimetypes.guess_type(f.name)[0] or "application/octet-stream", cache=True)
             return self.send(404, '{"error":"not found"}')
@@ -1793,7 +1791,7 @@ def cmd_serve(args):
                     doc = {}
                     if data.get("vars"):
                         doc["vars"] = data["vars"]
-                    doc["prompts"] = [ordered_prompt(p) for p in data.get("prompts", [])]
+                    doc["prompts"] = [_ordered(p, PROMPT_KEY_ORDER) for p in data.get("prompts", [])]
                     validate_prompts(doc)
                     write_yaml(args.prompts_file, doc, PROMPTS_HEADER)
                     return self.ok()
@@ -1807,6 +1805,7 @@ def cmd_serve(args):
                 try:
                     data = self.body()
                     if path == "/api/rating":
+                        _, store = self.results()
                         store.set_rating(str(data["id"]), data.get("rating") or 0, data.get("note") or "")
                         return self.ok()
                     if path == "/api/workflow/analyze":
@@ -1841,7 +1840,7 @@ def cmd_serve(args):
                             dest.write_text(json.dumps(wf, indent=2, ensure_ascii=False), encoding="utf-8")
                             return self.ok({"path": f"workflows/{name}"})
                         if kind == "input":
-                            name = safe_name(data.get("name", "bild.png"), {".png", ".jpg", ".jpeg", ".webp"}, ".png")
+                            name = safe_name(data.get("name", "image.png"), {".png", ".jpg", ".jpeg", ".webp"}, ".png")
                             dest = ROOT / "inputs" / name
                             raw = base64.b64decode(data["data"].split(",")[-1])
                             if dest.exists() and dest.read_bytes() != raw and not data.get("overwrite"):
@@ -1855,6 +1854,7 @@ def cmd_serve(args):
                             gid = str(data.get("id", ""))
                             if not gid:
                                 return self.err("Missing ID")
+                            _, store = self.results()
                             store.delete_generation(gid)
                         except (ValueError, KeyError, BenchError) as e:
                             return self.err(e)
