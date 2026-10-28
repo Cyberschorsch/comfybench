@@ -1,0 +1,21 @@
+services:
+  comfybench:
+    build: .
+    image: comfybench:latest
+    container_name: comfybench
+    restart: unless-stopped
+    # Files in the data folder belong to your user instead of root (set UID/GID in .env if needed)
+    user: "${PUID:-1000}:${PGID:-1000}"
+    ports:
+      - "${COMFYBENCH_PORT:-8765}:8765"
+    environment:
+      # ComfyUI runs on the host:            http://host.docker.internal:8188
+      # ComfyUI runs as a container in the same compose/network: http://comfyui:8188
+      COMFYUI_URL: "${COMFYUI_URL:-http://host.docker.internal:8188}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # Config, prompts, workflows, input images and results
+      - ./data:/data
+      # Optional: ComfyUI output for "bench import /comfy-output" (read-only) – adjust the path
+      # - /path/to/ComfyUI/output:/comfy-output:ro

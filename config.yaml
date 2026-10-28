@@ -1,0 +1,108 @@
+# ComfyBench – Configuration
+
+server: http://127.0.0.1:8188
+output_dir: results
+timeout: 900          # Seconds per image (first run of a model loads weights)
+
+# Each prompt runs with each of these seeds (per-prompt overrideable)
+seeds: [42, 1337]
+
+# Apply to all models if a workflow uses the placeholder
+defaults:
+  width: 1024
+  height: 1024
+  negative: ""
+  denoise: 0.6        # for img2img workflows
+  sampler: dpmpp_2m
+  scheduler: karras
+
+# Each model brings its own workflows in API format:
+#   workflow:            txt2img
+#   workflows:           additional modes, e.g., img2img, inpaint
+# Placeholders in workflow: {{prompt}} {{negative}} {{seed}} {{width}} {{height}} {{image}} {{denoise}}
+# plus anything under params (e.g., {{steps}}, {{cfg}}, {{checkpoint}}).
+# {{model_id}}, {{prompt_id}} and {{variant}} are automatic (useful for filename_prefix).
+# LoRAs: available LoRAs can be defined per model (name, default_strength, trigger).
+# Usage: --lora-combo "style" --lora-combo "style,detail" or --sweep-loras all|pairs|singles
+models:
+
+  sdxl-base:
+    label: SDXL Base 1.0
+    workflow: workflows/example-sdxl.json
+    workflows:
+      img2img: workflows/example-sdxl-img2img.json
+    params:
+      checkpoint: sd_xl_base_1.0.safetensors
+      steps: 30
+      cfg: 6.5
+    # loras:
+    #   style:
+    #     name: "loras/style_lora.safetensors"
+    #     default_strength: 0.8
+    #     trigger: "in the style of"
+    #   detail:
+    #     name: "loras/detail_lora.safetensors"
+    #     default_strength: 0.6
+    #     trigger: "highly detailed"
+    notes: Reference
+
+  # Example of a mapped workflow. The workflow file is not included –
+  # export your own, adjust the node IDs and remove "enabled: false".
+  moss-image:
+    label: MOSS-Image
+    enabled: false
+    # Original export from ComfyUI, unchanged. Mapping says which node field gets which value.
+    workflow:
+      file: workflows/moss-image-t2i.json
+      map:
+        prompt: [18:17/value]
+        negative: [18:5/text]
+        seed: [18:7/seed, 18:11/sampling_mode.seed]
+        steps: [18:7/steps]
+        cfg: [18:7/cfg]
+        sampler: [18:7/sampler_name]
+        scheduler: [18:7/scheduler]
+        width: [18:6/width]
+        height: [18:6/height]
+        enhance: [18:16/switch]
+        slg: [18:24/switch]
+    params:
+      steps: 50
+      cfg: 3
+      sampler: er_sde
+      scheduler: simple
+      enhance: true      # LLM expands prompt before rendering (Sweep: --sweep enhance=true,false)
+      slg: false         # Skip Layer Guidance (Sweep: --sweep slg=true,false)
+      # Model default if a prompt has no own negative:
+      negative: "bad anatomy, extra limbs, fused limbs, extra fingers, fused fingers, jpeg artefacts, piercing, earrings, tattoo, jewelry, 2d, cartoon, 3d, selfie"
+    notes: Qwen3.5-Textencoder, Flux2-VAE
+
+  # flux-dev:
+  #   label: Flux.1 dev
+  #   workflow: workflows/flux-dev.json
+  #   workflows:
+  #     img2img: workflows/flux-dev-img2img.json
+  #   params:
+  #     steps: 28
+  #     guidance: 3.5
+  #   loras:
+  #     style:
+  #       name: "loras/style_lora.safetensors"
+  #       default_strength: 0.8
+  #       trigger: "in the style of"
+  #     detail:
+  #       name: "loras/detail_lora.safetensors"
+  #       default_strength: 0.6
+  #       trigger: "highly detailed"
+  #     character:
+  #       name: "loras/character_lora.safetensors"
+  #       default_strength: 0.7
+  #       trigger: "character_name"
+
+  # qwen-image:
+  #   label: Qwen-Image
+  #   workflow: workflows/qwen-image.json
+  #   params:
+  #     steps: 30
+  #     cfg: 4.0
+  #   enabled: false     # runs only with --models qwen-image, stays in gallery

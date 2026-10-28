@@ -1,0 +1,3 @@
+#!/bin/sh
+# Short command inside the container:  docker compose exec comfybench bench run --models flux-dev
+exec python /app/bench.py "$@"

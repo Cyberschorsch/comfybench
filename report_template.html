@@ -1,0 +1,2131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ComfyBench</title>
+<style>
+:root{
+  --bg:#f6f5f2;--panel:#fff;--text:#1d1d1b;--muted:#6d6a63;--line:#e3e0d9;
+  --accent:#c2410c;--accent-bg:#fdeee5;--star:#e59e0b;--err:#b91c1c;--cell:280px;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#141413;--panel:#1e1e1c;--text:#ecebe6;--muted:#9b978e;--line:#33322e;
+  --accent:#fb923c;--accent-bg:#3a2417;--star:#fbbf24;--err:#f87171;}}
+:root[data-theme="dark"]{--bg:#141413;--panel:#1e1e1c;--text:#ecebe6;--muted:#9b978e;--line:#33322e;--accent:#fb923c;--accent-bg:#3a2417;--star:#fbbf24;--err:#f87171;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
+header{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line);padding:10px 16px}
+.top{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+h1{font-size:16px;margin:0;font-weight:650}
+nav{display:flex;gap:2px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:2px}
+nav button{border:0;background:transparent;padding:4px 12px;border-radius:6px}
+nav button.on{background:var(--accent-bg);color:var(--accent);font-weight:600}
+#status{color:var(--muted);font-size:12.5px;margin-left:auto}
+.ctrl{display:none;flex-wrap:wrap;gap:8px 16px;align-items:center;margin-top:10px}
+.ctrl.on{display:flex}
+label{color:var(--muted);font-size:13px}
+select,button,input[type=search]{font:inherit;color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:4px 8px}
+input[type=search]{width:180px}
+button{cursor:pointer}
+.models{display:flex;flex-wrap:wrap;gap:4px}
+.chip{border:1px solid var(--line);border-radius:999px;padding:2px 10px;cursor:pointer;user-select:none;font-size:13px;background:var(--panel)}
+.chip.off{opacity:.4;text-decoration:line-through}
+main{display:none}main.on{display:block}
+.wrap{overflow-x:auto;padding:0 16px 40px}
+/* The compare grid scrolls in its own box so its header row can stay pinned below the page header */
+#view-grid .wrap{height:calc(100vh - var(--vhdr,140px));overflow:auto}
+table{border-collapse:separate;border-spacing:0;margin-top:8px}
+th,td{vertical-align:top;padding:8px}
+tbody tr.first td{border-top:1px solid var(--line);padding-top:14px}
+thead th{position:sticky;top:0;z-index:2;background:var(--bg);text-align:left;font-weight:600;white-space:nowrap}
+thead th:first-child{left:0;z-index:3}
+thead tr+tr th{top:var(--h1,35px)}
+thead th .meta{display:block;color:var(--muted);font-weight:400;font-size:12px}
+thead th.g1{text-align:left;border-left:1px solid var(--line);padding-left:10px}
+thead th.g2{font-weight:500;font-size:12.5px;color:var(--muted);border-bottom:1px solid var(--line)}
+.mlink{color:inherit;text-decoration:none;border-bottom:1px dotted var(--muted);cursor:pointer}
+.mlink:hover{color:var(--accent);border-color:currentColor}
+#modelbar{display:none;gap:12px;align-items:baseline;flex-wrap:wrap;padding:12px 16px 0}
+#modelbar.on{display:flex}
+#modelbar b{font-size:17px}
+#modelbar .back{color:var(--accent);text-decoration:none;font-size:13px}
+#modelbar .hint{max-width:60ch}
+td.p{width:270px;min-width:220px;position:sticky;left:0;background:var(--bg);z-index:1}
+.pid{font-weight:600}
+.tag{display:inline-block;font-size:11px;color:var(--accent);border:1px solid currentColor;border-radius:4px;padding:0 5px;margin-left:4px;vertical-align:1px}
+.lora{display:inline-block;font-size:11px;color:var(--accent);border:1px solid currentColor;border-radius:999px;padding:0 6px;margin-right:4px;white-space:nowrap}
+.txt{color:var(--muted);font-size:12.5px;margin-top:4px;max-height:7.5em;overflow:auto;white-space:pre-wrap}
+.check{font-size:12px;margin-top:6px}
+.vars{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.var{font-size:12px;background:var(--accent-bg);border-radius:4px;padding:1px 6px}
+.var b{font-weight:600;color:var(--accent)}
+.inthumb{display:flex;gap:6px;align-items:center;margin-top:8px;font-size:11px;color:var(--muted)}
+.inthumb img{width:56px;height:56px;object-fit:cover;border-radius:4px;border:1px solid var(--line)}
+td.c{min-width:var(--cell);width:var(--cell)}
+td.c img,.card img{width:100%;border-radius:6px;display:block;cursor:zoom-in;background:var(--line)}
+.missing{height:110px;border:1px dashed var(--line);border-radius:6px;display:grid;place-items:center;color:var(--muted);font-size:12px;text-align:center;padding:6px}
+.missing.err{color:var(--err);border-color:var(--err);cursor:help}
+.below{display:flex;justify-content:space-between;align-items:center;gap:6px;margin-top:4px;font-size:12px;color:var(--muted)}
+.ver{background:var(--line);border-radius:4px;padding:0 4px;color:var(--text)}
+.stars{white-space:nowrap}
+.stars span{cursor:pointer;color:var(--line);font-size:16px}
+.stars span.on{color:var(--star)}
+.stars.ro span{cursor:default}
+tfoot td{font-weight:600;border-top:1px solid var(--line)}
+#gal{padding:12px 16px 40px;columns:var(--cell);column-gap:12px}
+.card{break-inside:avoid;margin:0 0 14px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px}
+.card figcaption{font-size:12px;color:var(--muted);padding:6px 2px 2px}
+.card figcaption b{color:var(--text);font-weight:600}
+.empty{padding:40px 16px;color:var(--muted)}
+#lb{position:fixed;inset:0;background:rgba(0,0,0,.9);display:none;z-index:20;color:#eee}
+#lb.open{display:flex}
+#lb .img{flex:1;display:grid;place-items:center;padding:16px;min-width:0;cursor:zoom-out}
+#lb .img img{max-width:100%;max-height:calc(100vh - 32px);object-fit:contain}
+#lb aside{width:360px;padding:16px;overflow:auto;background:#111;font-size:13px}
+#lb aside h3{margin:0 0 6px;font-size:15px}
+#lb pre{white-space:pre-wrap;font-size:12px;color:#bbb;background:#1b1b1b;padding:8px;border-radius:6px;margin:4px 0 12px}
+#lb .sec{display:flex;justify-content:space-between;align-items:center;margin-top:10px}
+#lb button{background:#222;color:#eee;border-color:#444;font-size:12px;padding:2px 8px}
+#lb button.on{border-color:#fb923c;color:#fb923c}
+#lb textarea{width:100%;background:#1b1b1b;color:#eee;border:1px solid #333;border-radius:6px;padding:6px;font:inherit;resize:vertical}
+#lb .stars span{font-size:22px;color:#444}#lb .stars span.on{color:#fbbf24}
+#lb .var{background:#3a2417}#lb .var b{color:#fb923c}
+#lb .inp{display:flex;gap:8px;align-items:center;margin:8px 0}
+#lb .inp img{width:72px;border-radius:4px}
+.muted{color:#888}
+#toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--text);color:var(--bg);padding:6px 14px;border-radius:6px;font-size:13px;display:none;z-index:30}
+@media (max-width:700px){#lb{flex-direction:column}#lb aside{width:auto;max-height:45vh}td.p{position:static}}
+
+/* Delete buttons */
+.del-btn,.del-btn-card{border:0;background:transparent;cursor:pointer;font-size:14px;padding:2px 6px;border-radius:4px;opacity:0;transition:opacity .2s}
+.del-btn:hover,.del-btn-card:hover{opacity:1;background:var(--err);color:#fff}
+.card:hover .del-btn-card{opacity:.7}
+#lb aside .del-btn{opacity:.5}
+#lb aside .del-btn:hover{opacity:1;background:var(--err);color:#fff}
+/* ---------- Generate ---------- */
+.rn{display:grid;grid-template-columns:minmax(320px,1fr) minmax(320px,1fr);gap:18px;padding:14px 16px 60px;align-items:start}
+.rn-card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px 18px;min-width:0}
+.rn-card h2{margin:0 0 10px;font-size:17px;display:flex;align-items:center;gap:10px}
+.rn-sec{border-top:1px solid var(--line);padding:10px 0}
+.rn-h{display:flex;justify-content:space-between;align-items:center;font-weight:600;font-size:13px;margin-bottom:6px}
+.rn-h button{font-size:12px;padding:1px 8px;margin-left:4px}
+.rn-item{display:flex;gap:8px;align-items:flex-start;padding:3px 0;color:var(--text);font-size:13.5px;cursor:pointer}
+.rn-item input{margin-top:3px}
+.rn-item small{display:block;color:var(--muted);font-size:12px}
+.rn-item.rn-p small{display:inline}
+.rn-plist{max-height:340px;overflow:auto;padding-right:4px}
+.rn-cat{margin-bottom:6px}
+.rn-p{padding-left:22px}
+.rn-sweep{margin-bottom:6px}
+.rn-sweep input:not([type=checkbox]){font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:4px 8px}
+.rn-lora-modes{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:6px}
+.rn-lora-modes .rn-item{padding:0}
+.rn-lora{margin-bottom:6px}
+.rn-lora input[type=text],.rn-lora select{font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:4px 8px}
+.rn-lora input[type=text]:disabled{opacity:.5}
+.rn-lora .hint{width:100%}
+.rn-plan{border-top:1px solid var(--line);padding:12px 0 10px;font-size:13.5px}
+.rn-start{width:100%;padding:8px;font-size:14px}
+.rn-badge{font-size:12px;font-weight:600;border-radius:999px;padding:2px 10px;background:var(--line)}
+.rn-running,.rn-stopping{background:var(--accent-bg);color:var(--accent)}
+.rn-done{background:#dcfce7;color:#166534}
+.rn-error{background:#fde8e8;color:#991b1b}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .rn-done{background:#14301f;color:#86efac}:root:not([data-theme="light"]) .rn-error{background:#3b1414;color:#fca5a5}}
+.rn-bar{height:8px;background:var(--line);border-radius:4px;overflow:hidden;margin:6px 0 8px}
+.rn-bar div{height:100%;background:var(--accent);transition:width .4s}
+.rn-nums{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13px;color:var(--muted)}
+.rn-nums b{color:var(--text)}
+.rn-errn b{color:var(--err)}
+.rn-cur{margin-top:8px;font-size:13px;display:flex;gap:8px;align-items:center}
+.rn-spin{width:12px;height:12px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:rnspin 1s linear infinite;flex:none}
+@keyframes rnspin{to{transform:rotate(360deg)}}
+.rn-thumbs{display:grid;grid-template-columns:repeat(auto-fill,minmax(82px,1fr));gap:6px}
+.rn-thumbs img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px;cursor:zoom-in;background:var(--line)}
+.rn-log{max-height:300px;overflow:auto;font:12px/1.5 ui-monospace,monospace;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 8px}
+.rn-log span{color:var(--muted)}
+.rn-log .l-err{color:var(--err)}
+.rn-log .l-warn{color:var(--accent)}
+@media (max-width:900px){.rn{grid-template-columns:1fr}}
+/* ---------- Setup ---------- */
+.su{display:grid;grid-template-columns:210px 1fr;gap:20px;padding:14px 16px 60px;align-items:start}
+.su-nav{position:sticky;top:120px;display:flex;flex-direction:column;gap:4px}
+.su-nav>button{text-align:left;border:0;background:transparent;padding:6px 10px;border-radius:6px}
+.su-nav>button.on{background:var(--accent-bg);color:var(--accent);font-weight:600}
+.su-bar{margin-top:14px;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);display:flex;flex-direction:column;gap:6px;font-size:13px}
+.su-bar .dirty{color:var(--accent);font-weight:600}
+.btn-p{background:var(--accent);color:#fff;border-color:var(--accent)}
+.btn-p:disabled{opacity:.45;cursor:default}
+.su-msg{font-size:12.5px;padding:8px;border-radius:6px;white-space:pre-wrap}
+.su-msg.err{background:#fde8e8;color:#991b1b}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .su-msg.err{background:#3b1414;color:#fca5a5}}
+.su-check div{font-size:12.5px;margin:4px 0}
+.su-cols{display:grid;grid-template-columns:230px 1fr;gap:18px;align-items:start}
+.su-list{display:flex;flex-direction:column;gap:2px;position:sticky;top:120px;max-height:calc(100vh - 140px);overflow:auto}
+.su-list button{text-align:left;border:1px solid transparent;background:transparent;padding:5px 8px;border-radius:6px;font-size:13px}
+.su-list button.on{background:var(--panel);border-color:var(--line);font-weight:600}
+.su-list .grp{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin:10px 0 2px 8px}
+.su-list small{display:block;color:var(--muted);font-weight:400}
+.su-edit{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px 18px;min-width:0}
+.su-edit h2{margin:0 0 12px;font-size:17px}
+.su-edit h3{margin:22px 0 8px;font-size:14px;border-top:1px solid var(--line);padding-top:14px}
+.su-grid{display:grid;grid-template-columns:150px 1fr;gap:8px 12px;align-items:center}
+.su-grid>label{text-align:right}
+.su-edit input[type=text],.su-edit textarea,.su-edit select{font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:5px 8px;width:100%}
+.su-edit textarea{resize:vertical;min-height:2.4em}
+.su-edit input.short{width:120px}
+.hint{font-size:12px;color:var(--muted)}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+table.kv{border-collapse:collapse;width:100%}
+table.kv td{padding:4px 6px;border-bottom:1px solid var(--line);vertical-align:top}
+table.kv td.k{width:170px;font-family:ui-monospace,monospace;font-size:12.5px;padding-top:9px}
+.x{border:0;background:transparent;color:var(--muted);font-size:15px;padding:2px 6px}
+.x:hover{color:var(--err)}
+.mapsum{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 10px}
+.mapsum span{font-size:12px;border:1px solid var(--line);border-radius:6px;padding:2px 8px;background:var(--bg)}
+.mapsum span b{color:var(--accent)}
+.mapsum span.warn{border-color:var(--err);color:var(--err)}
+.nodes{max-height:520px;overflow:auto;border:1px solid var(--line);border-radius:8px}
+.node{border-bottom:1px solid var(--line);padding:6px 10px}
+.node .nh{font-size:12.5px;font-weight:600;margin-bottom:4px}
+.node .nh small{color:var(--muted);font-weight:400}
+.inp{display:grid;grid-template-columns:170px 1fr 170px;gap:8px;align-items:center;font-size:12.5px;padding:2px 0}
+.inp .n{font-family:ui-monospace,monospace}
+.inp .v{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.inp.mapped .n{color:var(--accent);font-weight:600}
+.inp select{padding:2px 6px!important}
+.prev{font-size:12.5px;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:8px 10px;margin-top:6px}
+.prev div{margin:3px 0}
+.thumb{width:64px;height:64px;object-fit:cover;border-radius:6px;border:1px solid var(--line)}
+.warnline{color:var(--err);font-size:12.5px}
+.su-vd{border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-top:14px}
+.su-vd-list,.rn-sw-list{max-height:260px;overflow:auto;border:1px solid var(--line);border-radius:6px;padding:4px 8px;margin:8px 0}
+.rn-sw-list .rn-item small{display:inline;margin-left:6px}
+@media (max-width:900px){.su,.su-cols{grid-template-columns:1fr}.su-nav,.su-list{position:static}.inp{grid-template-columns:1fr 1fr}.inp .v{display:none}}
+</style>
+</head>
+<body>
+<header>
+  <div class="top">
+    <h1>ComfyBench</h1>
+    <nav><button data-view="grid">Compare</button><button data-view="gallery">Gallery</button><button data-view="run" id="nav-run">Generate</button><button data-view="setup" id="nav-setup">Setup</button></nav>
+    <button id="reload" title="Reload">↻</button>
+    <span id="status"></span>
+  </div>
+  <div class="ctrl" id="ctrl-grid">
+    <div><label>Columns </label><select id="axis"></select></div>
+    <div><label>Sub-columns </label><select id="sub"></select></div>
+    <div><label>Seed </label><select id="seed"></select></div>
+    <div><label>Category </label><select id="cat"></select></div>
+    <input type="search" id="q" placeholder="Prompt or variant…">
+    <div class="models" id="chips"></div>
+  </div>
+  <div class="ctrl" id="ctrl-gallery">
+    <div><label>Model </label><select id="gModel"></select></div>
+    <div><label>Prompt </label><select id="gPrompt"></select></div>
+    <div><label>Min. </label><select id="gMin"><option value="0">all</option><option value="1">★</option><option value="2">★★</option><option value="3">★★★</option><option value="4">★★★★</option><option value="5">★★★★★</option></select></div>
+    <div><label>Sort </label><select id="gSort"><option value="new">newest</option><option value="best">best</option><option value="old">oldest</option></select></div>
+    <input type="search" id="gq" placeholder="Text, variant, note…">
+  </div>
+  <div class="ctrl on" id="ctrl-size" style="margin-top:6px"><label>Size </label><input id="size" type="range" min="160" max="560" value="280"></div>
+</header>
+<main id="view-grid"><div id="modelbar"></div><div class="wrap"><table id="grid"></table></div></main>
+<main id="view-gallery"><div id="gal"></div></main>
+<main id="view-run"><div id="run"></div></main>
+<main id="view-setup"><div id="setup"></div></main>
+<div id="lb"><div class="img"><img alt=""></div><aside></aside></div>
+<div id="toast"></div>
+<script>
+const EMBED = /*__DATA__*/null;
+let D = null, STATIC = false;
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const ls = {
+  get(k){ try { return JSON.parse(localStorage.getItem("cb2:"+k)); } catch(e){ return null; } },
+  set(k,v){ try { localStorage.setItem("cb2:"+k, JSON.stringify(v)); } catch(e){} }
+};
+const S = Object.assign({view:"grid", axis:"model", sub:"none", seed:"", cat:"", q:"", size:280, hidden:[], gModel:"", gPrompt:"", gMin:"0", gSort:"new", gq:"", focus:"", mview:{}}, ls.get("state") || {});
+const save = () => ls.set("state", S);
+const fileUrl = r => (STATIC ? "" : "files/") + r.split("/").map(encodeURIComponent).join("/");
+function toast(t){ const el=$("#toast"); el.textContent=t; el.style.display="block"; clearTimeout(toast.t); toast.t=setTimeout(()=>el.style.display="none",1800); }
+
+let byCell, byId, modelMap, promptMap, loraCombos = [];
+const ck = (m,p,v,s) => [m,p,v,s].join("\u0001");
+const ckL = (m,p,v,s,l) => ck(m,p,v,s) + "\u0002" + (l || "none");
+const loraKey = g => g.lora_combo || "none";
+const loraLabel = k => (!k || k === "none") ? "base" : k;
+const loraBadge = g => { const k = loraKey(g); return k === "none" ? "" : `<span class="lora" title="LoRA combination">${esc(k)}</span>`; };
+// Does this model define every LoRA of a combination key such as "style,detail:0.7"?
+const modelUsesLora = (m, key) => key === "none"
+  || key.split(",").map(x => x.split(":")[0].trim()).every(n => Object.keys(m.loras || {}).includes(n));
+function index(){
+  byCell = new Map(); byId = new Map();
+  modelMap = new Map(D.models.map(m => [m.id, m]));
+  promptMap = new Map(D.prompts.map(p => [p.id, p]));
+  D.generations.forEach((g,i) => {
+    g._i = i; byId.set(g.id, g);
+    const k = ck(g.model, g.prompt, g.variant_key || "", g.seed);
+    if(!byCell.has(k)) byCell.set(k, []);
+    byCell.get(k).push(g);
+    if(loraKey(g) !== "none"){
+      const kl = ckL(g.model, g.prompt, g.variant_key || "", g.seed, loraKey(g));
+      if(!byCell.has(kl)) byCell.set(kl, []);
+      byCell.get(kl).push(g);
+    }
+  });
+  for(const a of byCell.values()) a.sort((x,y) => y._i - x._i);
+  loraCombos = [...new Set(D.generations.map(loraKey))].sort((a, b) =>
+    (a === "none" ? -1 : b === "none" ? 1 : a.localeCompare(b)));
+}
+const versionsOf = g => (byCell.get(ck(g.model, g.prompt, g.variant_key || "", g.seed)) || []).filter(x => x.status === "ok");
+const shortVal = v => String(v).split("/").pop().replace(/\.(safetensors|ckpt|pt|gguf|sft)$/i, "");
+const dimLabel = n => n === "checkpoint" ? "Checkpoints" : "Variable: " + n;
+const rating = id => (D.ratings[id] || {}).rating || 0;
+const mLabel = id => modelMap.has(id) ? modelMap.get(id).label : (String(id).startsWith("import:") ? id.slice(7) + " · Import" : id);
+const varChips = v => Object.entries(v || {}).map(([k,l]) => `<span class="var"><b>${esc(k)}</b> ${esc(l)}</span>`).join("");
+function stars(id){
+  const r = rating(id);
+  return `<span class="stars ${STATIC?"ro":""}" data-id="${esc(id)}">${[1,2,3,4,5].map(i=>`<span class="${i<=r?"on":""}" data-r="${i}">★</span>`).join("")}</span>`;
+}
+
+async function load(){
+  if(EMBED){ D = EMBED; STATIC = true; }
+  else {
+    try { const r = await fetch("api/data"); D = await r.json(); if(D.error) throw new Error(D.error); }
+    catch(e){ document.body.insertAdjacentHTML("beforeend", `<p class="empty">Could not load data: ${esc(e.message)}</p>`); return; }
+  }
+  index(); S.focus = hashFocus(); if(S.focus) S.view = "grid"; fillControls(); render();
+  if(!STATIC && !load.polled){ load.polled = true; rnPoll(); }
+}
+
+function opts(sel, items, cur){ sel.innerHTML = items.map(([v,l]) => `<option value="${esc(v)}" ${String(v)===String(cur)?"selected":""}>${esc(l)}</option>`).join(""); }
+
+// ---------------------------------------------------------- Model detail view
+// Focused model (detail page) stores its column settings apart from Compare.
+const focusId = () => (S.focus && modelMap.has(S.focus)) ? S.focus : "";
+function gridCfg(){
+  const id = focusId();
+  if(!id) return S;
+  if(!S.mview[id]) S.mview[id] = {};
+  return S.mview[id];
+}
+// Variant keys that only exist because of a sweep (present in images, absent from prompts.yaml)
+function sweepVarsFor(mid){
+  const out = [];
+  for(const g of D.generations){
+    if(g.status !== "ok" || (mid && g.model !== mid)) continue;
+    const p = promptMap.get(g.prompt); if(!p) continue;
+    const base = new Set();
+    p.variants.forEach(v => { if(!v.extra) Object.keys(v.variant).forEach(k => base.add(k)); });
+    Object.keys(g.variant || {}).forEach(k => { if(!base.has(k) && !out.includes(k)) out.push(k); });
+  }
+  return out;
+}
+function hashFocus(){
+  const m = (location.hash || "").match(/^#model\/([^/]+)$/);
+  if(!m) return "";
+  let id = m[1];
+  try { id = decodeURIComponent(id); } catch(e){}
+  return modelMap.has(id) ? id : "";
+}
+function setFocus(id, keepHistory){
+  S.focus = id && modelMap.has(id) ? id : "";
+  save();
+  const h = S.focus ? "#model/" + encodeURIComponent(S.focus) : "";
+  if(!keepHistory && location.hash !== h){
+    if(S.focus) history.pushState(null, "", h);
+    else history.pushState(null, "", location.pathname + location.search);
+  }
+  if(S.view !== "grid" && S.view !== "setup" && S.view !== "run") S.view = "grid";
+  fillControls(); render();
+}
+function renderModelBar(){
+  const el = $("#modelbar"), id = focusId();
+  if(!id){ el.classList.remove("on"); el.innerHTML = ""; return; }
+  const m = modelMap.get(id);
+  const n = D.generations.filter(g => g.status === "ok" && g.model === id && (g.files||[]).length).length;
+  const sel = D.models.map(x => `<option value="${esc(x.id)}" ${x.id===id?"selected":""}>${esc(x.label)}</option>`).join("");
+  el.classList.add("on");
+  el.innerHTML = `<a class="back" href="#" data-focus="">← Compare</a>
+    <b>${esc(m.label)}</b><select id="msel" title="Switch model" aria-label="Switch model">${sel}</select>
+    <span class="hint">${n} image${n===1?"":"s"}${m.notes?" · "+esc(m.notes):""}</span>`;
+}
+function fillControls(){
+  const cfg = gridCfg(), focus = focusId();
+  const varNames = [...new Set(D.prompts.flatMap(p => p.variants.flatMap(v => Object.keys(v.variant))))];
+  if(!D.seeds.map(String).includes(String(cfg.seed)) && cfg.seed !== "all") cfg.seed = String(D.seeds[0] ?? "");
+  if(!cfg.axis) cfg.axis = focus ? "" : "model";
+  if(cfg.axis.startsWith("var:") && !varNames.includes(cfg.axis.slice(4))) cfg.axis = "";
+  if(cfg.axis === "lora" && !loraCombos.some(k => k !== "none")) cfg.axis = "";
+  if(focus && (!cfg.axis || cfg.axis === "model")){
+    const sw = sweepVarsFor(focus);
+    cfg.axis = sw.includes("checkpoint") ? "var:checkpoint" : sw.length ? "var:" + sw[0]
+      : (loraCombos.some(k => k !== "none") ? "lora" : "seed");
+  }
+  if(!focus && !cfg.axis) cfg.axis = "model";
+  const axisOpts = focus
+    ? [...varNames.map(n => ["var:"+n, dimLabel(n)]),
+       ...(loraCombos.some(k => k !== "none") ? [["lora","LoRA"]] : []), ["seed","Seeds"]]
+    : [["model","Models"], ["seed","Seeds"],
+       ...(loraCombos.some(k => k !== "none") ? [["lora","LoRA"]] : []),
+       ...varNames.map(n => ["var:"+n, dimLabel(n)])];
+  // Every dimension is offered in both dropdowns; choosing the same one twice swaps them
+  const subOpts = [["none","none"],
+    ...(D.seeds.length > 1 ? [["seed","Seeds"]] : []),
+    ...(loraCombos.some(k => k !== "none") ? [["lora","LoRA"]] : []),
+    ...varNames.map(n => ["var:"+n, dimLabel(n)])];
+  if(cfg.sub === cfg.axis) cfg.sub = "none";
+  if(!cfg.sub || !subOpts.some(o => o[0] === cfg.sub)) cfg.sub = "none";
+  opts($("#axis"), axisOpts, cfg.axis);
+  opts($("#sub"), subOpts, cfg.sub);
+  opts($("#seed"), [...D.seeds.map(s=>[s,s]), ["all","all side by side"]], cfg.seed);
+  opts($("#cat"), [["","all"], ...[...new Set(D.prompts.map(p=>p.category).filter(Boolean))].map(c=>[c,c])], cfg.cat);
+  const gm = [...new Set(D.generations.map(g=>g.model))];
+  opts($("#gModel"), [["","all"], ...gm.map(m=>[m, mLabel(m)])], S.gModel);
+  const gp = [...new Set(D.generations.map(g=>g.prompt))].sort();
+  opts($("#gPrompt"), [["","all"], ...gp.map(p=>[p,p])], S.gPrompt);
+  $("#gMin").value = S.gMin; $("#gSort").value = S.gSort; $("#q").value = cfg.q || ""; $("#gq").value = S.gq; $("#size").value = S.size;
+  $("#chips").innerHTML = D.models.map(m => `<span class="chip ${S.hidden.includes(m.id)?"off":""}" data-id="${esc(m.id)}">${esc(m.label)}</span>`).join("");
+  $("#chips").style.display = focus ? "none" : "";
+}
+
+// Size the compare grid's scroll box so its sticky header sits below the page header
+function syncGridView(){
+  const h = $("header").offsetHeight + ($("#modelbar").offsetHeight || 0);
+  document.documentElement.style.setProperty("--vhdr", h + "px");
+}
+function render(){
+  document.documentElement.style.setProperty("--cell", S.size + "px");
+  document.querySelectorAll("nav button").forEach(b => b.classList.toggle("on", b.dataset.view === S.view));
+  if(STATIC && (S.view === "setup" || S.view === "run")) S.view = "grid";
+  $("#nav-setup").style.display = STATIC ? "none" : "";
+  $("#nav-run").style.display = STATIC ? "none" : "";
+  ["grid","gallery","run","setup"].forEach(v => { $("#view-"+v).classList.toggle("on", S.view===v); const c=$("#ctrl-"+v); if(c) c.classList.toggle("on", S.view===v); });
+  $("#ctrl-size").classList.toggle("on", S.view !== "setup" && S.view !== "run");
+  const ok = D.generations.filter(g => g.status === "ok").length;
+  $("#status").textContent = `${ok} images · ${Object.keys(D.ratings).length} rated` + (STATIC ? " · static copy (read-only)" : "");
+  if(S.view === "setup") return SU.data ? suRender() : suLoad();
+  if(S.view === "run") return rnRender();
+  if(S.view === "grid"){ renderModelBar(); renderGrid(); syncGridView(); } else renderGallery();
+}
+
+const keyOf = obj => Object.keys(obj).sort().map(k => k + "=" + obj[k]).join("|");
+function cellHtml(m, p, vkey, s, sink, lora, seedNote){
+  if(!m.modes.includes(p.mode)) return `<div class="missing">no ${esc(p.mode)} workflow</div>`;
+  const all = byCell.get((lora === undefined || lora === "none")
+    ? ck(m.id, p.id, vkey, s) : ckL(m.id, p.id, vkey, s, lora)) || [];
+  const g = all.find(x => x.status === "ok");
+  if(!g){
+    const e = all[0];
+    return e ? `<div class="missing err" title="${esc(e.error)}">Error · seed ${s}<br><small>${esc((e.error||"").slice(0,90))}</small></div>`
+             : `<div class="missing">not generated yet · seed ${s}</div>`;
+  }
+  if(rating(g.id)) sink.ratings.push(rating(g.id));
+  if(g.seconds) sink.secs.push(g.seconds);
+  if(!sink.input && g.inputs && Object.keys(g.inputs).length) sink.input = g.inputs;
+  const n = all.filter(x => x.status === "ok").length;
+  const note = (D.ratings[g.id] || {}).note;
+  return `<img loading="lazy" src="${fileUrl(g.files[0])}" data-id="${esc(g.id)}" alt="">
+    <div class="below">${stars(g.id)}<span>${note?"📝 ":""}${loraBadge(g)}${n>1?`<span class="ver" title="${n} versions">v${n}</span> `:""}${g.seconds ?? "–"}s${seedNote?" · "+s:""}</span></div>`;
+}
+
+function renderGrid(){
+  const focus = focusId(), focusModel = focus ? modelMap.get(focus) : null;
+  const cfg = gridCfg();
+  const models = D.models.filter(m => !S.hidden.includes(m.id) && (!focus || m.id === focus));
+  const axis = cfg.axis || "model";
+  const axVar = axis.startsWith("var:") ? axis.slice(4) : null;
+  const sub = cfg.sub && cfg.sub !== axis ? cfg.sub : "none";
+  const subVar = sub.startsWith("var:") ? sub.slice(4) : null;
+  const seedsSel = cfg.seed === "all" ? D.seeds : [Number(cfg.seed)];
+  const q = (cfg.q || "").trim().toLowerCase();
+
+  // Columns
+  let cols;
+  if(axis === "model") cols = models.map(m => ({id: "m:"+m.id, label: m.label, meta: m.id, m}));
+  else if(axis === "seed") cols = D.seeds.map(s => ({id: "s:"+s, label: "Seed " + s, s}));
+  else if(axis === "lora") cols = loraCombos
+    .filter(k => k === "none" || D.generations.some(g => loraKey(g) === k && !S.hidden.includes(g.model)))
+    .map(k => ({id: "l:"+k, label: loraLabel(k), lora: k}));
+  else {
+    const labels = [];
+    D.prompts.forEach(p => p.variants.forEach(v => {
+      const l = v.variant[axVar]; if(l === undefined) return;
+      if(focus && !D.generations.some(g => g.status === "ok" && g.model === focus && (g.variant||{})[axVar] === l)) return;
+      if(!labels.includes(l)) labels.push(l);
+    }));
+    // Images that never got this value (not swept, or swept later) keep their own "default" column
+    const hasDefault = D.generations.some(g => g.status === "ok" && g.mode !== "import" && (g.files||[]).length
+      && !S.hidden.includes(g.model) && (!focus || g.model === focus) && (g.variant||{})[axVar] === undefined);
+    if(hasDefault && labels.length) labels.push("\u0000default");   // un-swept images last
+    cols = labels.map(l => l === "\u0000default"
+      ? {id: "v:default", label: "default", dflt: true}
+      : {id: "v:"+l, label: shortVal(axVar) + ": " + shortVal(l), full: axVar + ": " + l, l});
+  }
+
+  // Rows: Prompt × (variant without column/sub variable) × (model, when model is not the column)
+  const consumed = [axVar, subVar].filter(Boolean);
+  const rows = [];
+  for(const p of D.prompts){
+    if(cfg.cat && p.category !== cfg.cat) continue;
+    if(focus && !focusModel.modes.includes(p.mode)) continue;   // no workflow for this model
+    let groups = [];
+    if(consumed.length){
+      const seen = new Map();
+      p.variants.forEach(v => {
+        const rest = Object.fromEntries(Object.entries(v.variant).filter(([k]) => !consumed.includes(k)));
+        const k = keyOf(rest);
+        if(!seen.has(k)){ seen.set(k, {rest, label: Object.entries(rest).map(([a,b])=>a+": "+b).join(" · ")}); groups.push(seen.get(k)); }
+      });
+    } else groups = p.variants.map(v => ({rest: v.variant, label: v.label, key: v.key}));
+    let first = true;
+    for(const gr of groups){
+      if(q && !(p.id+" "+gr.label+" "+p.prompt).toLowerCase().includes(q)) continue;
+      const rowModels = (axis === "model" || focus) ? [null] : models;
+      for(const m of rowModels){ rows.push({p, gr, m, first}); first = false; }
+    }
+  }
+  if(!rows.length || !cols.length){
+    $("#grid").innerHTML = `<tr><td class="empty">${focus ? `Nothing generated with ${esc(focusModel.label)} for this filter.` : axVar ? `No prompts with the variable "${esc(axVar)}" for this filter.` : "No prompts for this filter."}</td></tr>`;
+    return;
+  }
+
+  // Sub-columns per main column: only values that actually have images for that column
+  const rowModel = c => (axis === "model" ? c.m : null);
+  const modelOf = (r, c) => rowModel(c) || r.m || models[0] || focusModel;
+  // Sub-columns of a main column: the values that column has images for
+  const subs = cols.map(c => {
+    if(sub === "none") return [{}];
+    if(sub === "seed") return D.seeds.map(s => ({s, label: "Seed " + s}));
+    if(sub === "lora") return loraCombos.map(k => ({lora: k, label: loraLabel(k)}));
+    const out = [], seen = new Set();
+    let hasDefault = false;
+    for(const g of D.generations){
+      if(g.status !== "ok" || g.mode === "import" || !(g.files||[]).length) continue;
+      if(axis === "model" ? g.model !== c.m.id : (focus && g.model !== focus)) continue;
+      if(axis === "seed" && g.seed !== c.s) continue;
+      if(axis === "lora" && loraKey(g) !== c.lora) continue;
+      if(axVar && (g.variant||{})[axVar] !== c.l) continue;
+      const v = (g.variant || {})[subVar];
+      if(v === undefined){ hasDefault = true; continue; }
+      if(!seen.has(v)){ seen.add(v); out.push(v); }
+    }
+    if(hasDefault) out.push("\u0000default");   // un-swept images last
+    return out.map(v => v === "\u0000default" ? {val: "", label: "default"} : {val: v, label: shortVal(v), full: v});
+  });
+
+  const seedNote = cfg.seed === "all" && axis !== "seed" && sub !== "seed";
+  // A main column without any sub column has nothing to show
+  const keepIdx = cols.map((_, i) => i).filter(i => subs[i].length);
+  if(keepIdx.length !== cols.length){
+    const nc = keepIdx.map(i => cols[i]), ns = keepIdx.map(i => subs[i]);
+    cols = nc; subs.splice(0, subs.length, ...ns);
+  }
+  if(!cols.length){ $("#grid").innerHTML = `<tr><td class="empty">No images for this sub-column.</td></tr>`; return; }
+  const flatStats = cols.flatMap((c, ci) => subs[ci].map(() => ({ratings: [], secs: []})));
+  const body = rows.map(({p, gr, m, first}) => {
+    const sink = {ratings: [], secs: [], input: null};
+    const cells = cols.map((c, ci) => {
+      const model = modelOf({p, gr, m}, c);
+      const vbase = {...gr.rest};
+      if(axVar && !c.dflt) vbase[axVar] = c.l;
+      const start = subs.slice(0, ci).reduce((n, x) => n + x.length, 0);
+      return subs[ci].map((sv, si) => {
+        const st = flatStats[start + si];
+        if(!model) return `<td class="c"><div class="missing">–</div></td>`;
+        const attribs = {...vbase};
+        if(subVar && sv.val) attribs[subVar] = sv.val;
+        const vkey = keyOf(attribs);
+        if(!p.variants.some(v => v.key === vkey)) return `<td class="c"><div class="missing">not in set</div></td>`;
+        if(axis === "lora" && !modelUsesLora(model, c.lora)) return `<td class="c"><div class="missing">LoRA not configured for this model</div></td>`;
+        if(sub === "lora" && !modelUsesLora(model, sv.lora)) return `<td class="c"><div class="missing">LoRA not configured</div></td>`;
+        const seeds = sub === "seed" ? [sv.s] : axis === "seed" ? [c.s] : seedsSel;
+        const local = {ratings: [], secs: [], input: sink.input};
+        const html = seeds.map(s => cellHtml(model, p, vkey, s, local,
+          axis === "lora" ? c.lora : sub === "lora" ? sv.lora : undefined, seedNote)).join("<div style='height:10px'></div>");
+        st.ratings.push(...local.ratings); st.secs.push(...local.secs);
+        sink.input = local.input;
+        return `<td class="c">${html}</td>`;
+      }).join("");
+    }).join("");
+    const head = first ? `<div><span class="pid">${esc(p.id)}</span>${p.category?`<span class="tag">${esc(p.category)}</span>`:""}${p.mode!=="txt2img"&&p.mode!==p.category?`<span class="tag">${esc(p.mode)}</span>`:""}</div>
+        <div class="txt">${esc(p.prompt)}</div>${p.check?`<div class="check">🔎 ${esc(p.check)}</div>`:""}` : "";
+    const chips = (m && !focus ? `<span class="var"><b>Model</b> ${esc(m.label)}</span>` : "") + varChips(gr.rest);
+    const inp = sink.input ? `<div class="inthumb">${Object.entries(sink.input).map(([k,f])=>`<img src="${fileUrl(f)}" alt="" title="${esc(k)}">`).join("")}<span>Input</span></div>` : "";
+    return `<tr class="${first?"first":""}"><td class="p">${head}${chips?`<div class="vars">${chips}</div>`:""}${inp}</td>${cells}</tr>`;
+  }).join("");
+  const avg = a => a.reduce((x,y)=>x+y,0)/a.length;
+  const colName = c => axis === "model"
+    ? `<a class="mlink" href="#model/${encodeURIComponent(c.m.id)}" data-focus="${esc(c.m.id)}" title="Open ${esc(c.m.id)}">${esc(c.label)}</a>`
+    : esc(c.label);
+  // Header: one row, or model/sweep value on top and the sub-columns below
+  let head1 = `<th rowspan="${sub==="none"?1:2}">Prompt</th>`, head2 = "";
+  cols.forEach((c, ci) => {
+    const start = cols.slice(0, ci).reduce((n, x, i) => n + subs[i].length, 0);
+    const grp = flatStats.slice(start, start + subs[ci].length);
+    const secs = grp.flatMap(st => st.secs);
+    const meta = [axis === "model" ? c.m.id : "", secs.length ? avg(secs).toFixed(1)+"s Ø" : ""].filter(Boolean).join(" · ");
+    if(sub === "none") head1 += `<th>${colName(c)}${meta?`<span class="meta">${esc(meta)}</span>`:""}</th>`;
+    else {
+      head1 += `<th class="g1" colspan="${subs[ci].length}">${colName(c)}${meta?`<span class="meta">${esc(meta)}</span>`:""}</th>`;
+      head2 += subs[ci].map((sv, si) => {
+        const st = flatStats[start + si];
+        const m2 = st.secs.length ? avg(st.secs).toFixed(1)+"s" : "";
+        return `<th class="g2" title="${esc(sv.full || sv.label)}">${esc(sv.label)}${m2?`<span class="meta">${esc(m2)}</span>`:""}</th>`;
+      }).join("");
+    }
+  });
+  const foot = flatStats.map(st => `<td>${st.ratings.length ? avg(st.ratings).toFixed(2)+` ★ <span style="font-weight:400;color:var(--muted)">(${st.ratings.length})</span>` : "–"}</td>`).join("");
+  $("#grid").innerHTML = `<thead><tr>${head1}</tr>${head2?`<tr>${head2}</tr>`:""}</thead><tbody>${body}</tbody><tfoot><tr><td>Average rating (visible)</td>${foot}</tr></tfoot>`;
+  const r1 = $("#grid").tHead && $("#grid").tHead.rows[0];
+  if(sub !== "none" && r1) $("#grid").style.setProperty("--h1", r1.getBoundingClientRect().height + "px");
+}
+
+function renderGallery(){
+  const q = S.gq.trim().toLowerCase(), min = Number(S.gMin);
+  let gens = D.generations.filter(g => g.status === "ok" && g.files && g.files.length
+    && (!S.gModel || g.model === S.gModel) && (!S.gPrompt || g.prompt === S.gPrompt)
+    && rating(g.id) >= min
+    && (!q || [g.prompt, g.text, g.final_text||"", g.negative, g.model, mLabel(g.model), JSON.stringify(g.variant||{}), JSON.stringify(g.values||{}), g.lora_combo||"", g.source||"", (D.ratings[g.id]||{}).note||""].join(" ").toLowerCase().includes(q)));
+  if(S.gSort === "best") gens.sort((a,b) => rating(b.id)-rating(a.id) || b._i-a._i);
+  else if(S.gSort === "old") gens.sort((a,b) => a._i-b._i);
+  else gens.sort((a,b) => b._i-a._i);
+  if(!gens.length){ $("#gal").innerHTML = `<div class="empty">No images for this filter.</div>`; return; }
+  $("#gal").innerHTML = gens.slice(0, 600).map(g => `<figure class="card"><img loading="lazy" src="${fileUrl(g.files[0])}" data-id="${esc(g.id)}" alt="">
+    <figcaption><b>${esc(mLabel(g.model))}</b> · ${esc(g.prompt === "_import" ? "own image" : g.prompt)}${g.mode&&g.mode!=="txt2img"?` <span class="tag">${esc(g.mode)}</span>`:""}
+    ${g.variant && Object.keys(g.variant).length ? `<div class="vars">${varChips(g.variant)}</div>` : ""}
+    <div class="below">${stars(g.id)}<span>${loraBadge(g)}${g.seed!=null?"seed "+g.seed+" · ":""}${esc((g.at||"").slice(0,10))}</span></div>
+    <button class="del-btn-card" data-del="${esc(g.id)}" title="Delete">🗑️</button></figcaption></figure>`).join("")
+    + (gens.length > 600 ? `<div class="empty">… ${gens.length-600} more – refine the filter</div>` : "");
+}
+
+// ---------------------------------------------------------- Lightbox
+let lbList = [], lbIdx = 0;
+function openLb(id, list){ lbList = list && list.length ? list : [id]; lbIdx = Math.max(0, lbList.indexOf(id)); $("#lb").classList.add("open"); showLb(); }
+function closeLb(){ $("#lb").classList.remove("open"); }
+function showLb(){
+  const g = byId.get(lbList[lbIdx]); if(!g) return closeLb();
+  const p = promptMap.get(g.prompt) || {};
+  const vers = versionsOf(g), r = D.ratings[g.id] || {};
+  const mixedLora = new Set(vers.map(loraKey)).size > 1;
+  $("#lb .img img").src = fileUrl(g.files[0]);
+  const ins = Object.entries(g.inputs || {});
+  $("#lb aside").innerHTML = `
+    <h3>${esc(mLabel(g.model))} · ${esc(g.prompt==="_import"?"own image":g.prompt)}</h3>
+    <div class="gen-id" style="font-family:ui-monospace,monospace;font-size:11px;color:var(--muted);margin-bottom:4px;user-select:all" title="Click to copy">
+      ID: <b>${esc(g.id)}</b> <button onclick="copyGenId('${esc(g.id)}')" style="font-size:10px;padding:0 6px;margin-left:4px">📋</button>
+    </div>
+    ${g.variant && Object.keys(g.variant).length ? `<div class="vars">${varChips(g.variant)}</div>` : ""}
+    <p class="muted">${loraBadge(g)}${g.seed!=null?"Seed "+g.seed+" · ":""}${g.seconds!=null?g.seconds+"s · ":""}${esc(g.mode||"txt2img")} · ${esc((g.at||"").replace("T"," "))}${lbList.length>1?` · ${lbIdx+1}/${lbList.length}`:""}</p>
+    ${ins.map(([k,f]) => `<div class="inp"><img src="${fileUrl(f)}" alt=""><span class="muted">${esc(k)}: ${esc((g.input_src||{})[k]||"")}</span></div>`).join("")}
+    <div class="sec">${stars(g.id)} <button class="del-btn" data-del="${esc(g.id)}" title="Delete">🗑️</button></div>
+    <textarea id="note" rows="2" placeholder="${STATIC?"Notes only via bench.py serve":"Note…"}" ${STATIC?"disabled":""}>${esc(r.note||"")}</textarea>
+    <div class="sec"><b>Prompt</b><span><button data-copy="text">copy</button> <button data-copy="yaml" title="As a new entry for prompts.yaml">as YAML</button></span></div>
+    <pre>${esc(g.text)}</pre>
+    ${g.final_text ? `<div class="sec"><b>Expanded by the model</b><button data-copy="final">copy</button></div><pre style="max-height:220px;overflow:auto">${esc(g.final_text)}</pre>` : ""}
+    ${g.negative ? `<b>Negative</b><pre>${esc(g.negative)}</pre>` : ""}
+    <b>Parameter</b><pre>${esc(JSON.stringify(g.values||{}, null, 2))}</pre>
+    ${vers.length > 1 ? `<b>Versions of this cell</b><div style="display:flex;flex-wrap:wrap;gap:4px;margin:6px 0 12px">${vers.slice().reverse().map((x,i)=>`<button data-ver="${esc(x.id)}" class="${x.id===g.id?"on":""}" title="${esc(x.at)}">v${i+1}${mixedLora&&loraKey(x)!=="none"?` · ${esc(loraKey(x))}`:""}${rating(x.id)?" "+rating(x.id)+"★":""}</button>`).join("")}</div>` : ""}
+    ${g.source ? `<p class="muted">Source: ${esc(g.source)}</p>` : ""}
+    ${g.files.length > 1 ? `<p>${g.files.map(f=>`<a style="color:#fb923c" href="${fileUrl(f)}" target="_blank">${esc(f.split("/").pop())}</a>`).join("<br>")}</p>` : ""}
+    <p class="muted">Esc closes · ←/→ navigates${p.check?`<br>🔎 ${esc(p.check)}`:""}</p>`;
+}
+function yamlFor(g){
+  const p = promptMap.get(g.prompt) || {};
+  const id = [g.prompt === "_import" ? "neu" : g.prompt, ...Object.values(g.variant||{})].join("-").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");
+  let y = `  - id: ${id}\n`;
+  if(p.category) y += `    category: ${JSON.stringify(p.category)}\n`;
+  y += `    prompt: ${JSON.stringify(g.text)}\n`;
+  if(g.negative) y += `    negative: ${JSON.stringify(g.negative)}\n`;
+  const v = g.values || {};
+  if(v.width && v.height) y += `    width: ${v.width}\n    height: ${v.height}\n`;
+  for(const [k,src] of Object.entries(g.input_src||{})) y += `    ${k}: ${JSON.stringify(src)}\n`;
+  if(g.seed != null) y += `    seeds: [${g.seed}]\n`;
+  if(g.mode === "import" && v.checkpoint) y += `    # generated with ${v.checkpoint}\n`;
+  if(p.check) y += `    check: ${JSON.stringify(p.check)}\n`;
+  return y;
+}
+async function copy(t){
+  try { await navigator.clipboard.writeText(t); }
+  catch(e){ const a=document.createElement("textarea"); a.value=t; document.body.append(a); a.select(); document.execCommand("copy"); a.remove(); }
+  toast("Copied");
+}
+function copyGenId(id){
+  copy(id);
+  toast("Generation ID copied: " + id);
+}
+
+// ---------------------------------------------------------- Ratings
+async function persist(id){
+  if(STATIC) return;
+  const r = D.ratings[id] || {};
+  try {
+    const res = await fetch("api/rating", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({id, rating: r.rating||0, note: r.note||""})});
+    if(!res.ok) throw 0;
+  } catch(e){ toast("Save failed"); }
+}
+function setRating(id, v){
+  if(STATIC){ toast("Rating only works via bench.py serve"); return; }
+  const r = Object.assign({}, D.ratings[id]); r.rating = r.rating === v ? 0 : v;
+  if(!r.rating && !r.note) delete D.ratings[id]; else D.ratings[id] = r;
+  persist(id); render(); if($("#lb").classList.contains("open")) showLb();
+}
+let noteTimer;
+function setNote(id, text){
+  const r = Object.assign({}, D.ratings[id]); r.note = text;
+  if(!r.rating && !text) delete D.ratings[id]; else D.ratings[id] = r;
+  clearTimeout(noteTimer); noteTimer = setTimeout(() => { persist(id); render(); }, 500);
+}
+
+
+// ---------------------------------------------------------- Delete
+async function deleteGeneration(id){
+  if(STATIC){ toast("Deleting only works via bench.py serve"); return; }
+  if(!confirm("Really delete this image? The file and entry will be removed permanently.")) return;
+  try{
+    const res = await fetch("api/delete", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({id})});
+    if(!res.ok) throw 0;
+  }catch(e){ toast("Delete failed"); return; }
+  // Remove from data
+  D.generations = D.generations.filter(g => g.id !== id);
+  byId.delete(id);
+  index();
+  closeLb();
+  render();
+  toast("Deleted");
+}
+// ---------------------------------------------------------- Events
+document.addEventListener("click", e => {
+  const del = e.target.closest(".del-btn, .del-btn-card");
+  if(del){ deleteGeneration(del.dataset.del); return; }
+  const star = e.target.closest(".stars span[data-r]");
+  if(star){ setRating(star.parentElement.dataset.id, Number(star.dataset.r)); return; }
+  const chip = e.target.closest(".chip[data-id]");
+  if(chip){ const id = chip.dataset.id; S.hidden = S.hidden.includes(id) ? S.hidden.filter(x=>x!==id) : [...S.hidden, id]; save(); fillControls(); render(); return; }
+  const fl = e.target.closest("[data-focus]");
+  if(fl){ e.preventDefault(); setFocus(fl.dataset.focus); return; }
+  const nb = e.target.closest("nav button");
+  if(nb){ S.view = nb.dataset.view; if(nb.dataset.view === "grid" && S.focus){ S.focus = ""; history.pushState(null, "", location.pathname + location.search); fillControls(); } save(); render(); return; }
+  const img = e.target.closest("img[data-id]");
+  if(img){
+    const scope = S.view === "grid" ? img.closest("tr") : $("#gal");
+    openLb(img.dataset.id, [...scope.querySelectorAll("img[data-id]")].map(i => i.dataset.id)); return;
+  }
+  const ver = e.target.closest("[data-ver]");
+  if(ver){ lbList[lbIdx] = ver.dataset.ver; showLb(); return; }
+  const cp = e.target.closest("[data-copy]");
+  if(cp){ const g = byId.get(lbList[lbIdx]); copy(cp.dataset.copy === "yaml" ? yamlFor(g) : cp.dataset.copy === "final" ? g.final_text : g.text); return; }
+  if(e.target.closest("#lb .img")) closeLb();
+});
+document.addEventListener("input", e => {
+  if(e.target.id === "note"){ setNote(lbList[lbIdx], e.target.value); return; }
+  if(e.target.id === "q"){ gridCfg().q = e.target.value; save(); render(); return; }
+  const map = {gq:"gq", size:"size"};
+  if(map[e.target.id]){ S[map[e.target.id]] = e.target.value; save(); render(); }
+});
+document.addEventListener("change", e => {
+  if(e.target.id === "msel"){ setFocus(e.target.value); return; }
+  if(e.target.id === "axis" || e.target.id === "sub"){
+    setDimension(e.target.id, e.target.value);
+    save(); fillControls(); render(); return;
+  }
+  if(["seed","cat"].includes(e.target.id)){ gridCfg()[e.target.id] = e.target.value; save(); fillControls(); render(); return; }
+  if(["gModel","gPrompt","gMin","gSort"].includes(e.target.id)){ S[e.target.id] = e.target.value; save(); render(); }
+});
+// A dimension can be columns or sub-columns, not both: picking it in the second
+// dropdown swaps the two instead of hiding it from the list.
+function setDimension(kind, v){
+  const cfg = gridCfg(), other = kind === "axis" ? "sub" : "axis";
+  const prev = cfg[kind] || "none";
+  const valid = (k, x) => k === "axis" ? !!x && x !== "none" : !!x && x !== "none" && x !== "model";
+  if(v === cfg[other]) cfg[other] = valid(other, prev) ? prev : (other === "axis" ? (focusId() ? "seed" : "model") : "none");
+  cfg[kind] = v;
+}
+function applyHash(){
+  const id = hashFocus();
+  if(id === focusId()) return;
+  S.focus = id;
+  if(S.view !== "grid") S.view = "grid";
+  save(); fillControls(); render();
+}
+window.addEventListener("hashchange", applyHash);
+window.addEventListener("popstate", applyHash);
+window.addEventListener("resize", syncGridView);
+document.addEventListener("keydown", e => {
+  if(!$("#lb").classList.contains("open")) return;
+  if(e.key === "Escape"){ e.target.blur && e.target.blur(); closeLb(); return; }
+  if(e.target.tagName === "TEXTAREA") return;
+  if(e.key === "ArrowRight" || e.key === "ArrowLeft"){
+    lbIdx = (lbIdx + (e.key === "ArrowRight" ? 1 : -1) + lbList.length) % lbList.length; showLb();
+  }
+});
+$("#reload").onclick = () => { if(STATIC) location.reload(); else load(); };
+// =====================================================================
+// Setup: models (incl. workflow mapping), prompts, variable sets, general
+// =====================================================================
+// After a re-render, restore focus (and cursor position) in the field that was being edited
+const FOCUS_ATTRS = ["data-b", "data-rn-sw", "data-f", "data-varname", "data-varvals", "data-setname", "data-setvals", "data-map", "data-wf", "data-act-change"];
+function focusKey(el){
+  if(!el || el === document.body || !el.closest || !(el.closest("#setup") || el.closest("#run"))) return null;
+  if(el.id) return "#" + CSS.escape(el.id);
+  const parts = FOCUS_ATTRS.filter(a => el.hasAttribute(a)).map(a => `[${a}="${CSS.escape(el.getAttribute(a))}"]`);
+  return parts.length ? el.tagName.toLowerCase() + parts.join("") : null;
+}
+function keepFocus(fn){
+  setTimeout(() => {
+    const a = document.activeElement, key = focusKey(a);
+    const sel = a && "selectionStart" in a ? [a.selectionStart, a.selectionEnd] : null;
+    fn();
+    if(!key) return;
+    const n = document.querySelector(key);
+    if(n){ n.focus(); if(sel && "setSelectionRange" in n){ try { n.setSelectionRange(sel[0], sel[1]); } catch(e){} } }
+  }, 0);
+}
+const SU = { data: null, cfg: null, doc: null, dirty: {config: false, prompts: false},
+  sec: S.suSec || "models", model: null, mode: "txt2img", prompt: null, analysis: {}, check: null,
+  error: "", info: "", nodeQ: "", allNodes: false, pq: "", tmplModal: null, varDlg: null };
+const clone = o => JSON.parse(JSON.stringify(o));
+
+// ---- Option lists from ComfyUI (checkpoints, samplers, LoRA files …), see api/comfy/options ----
+const CO = { data: null, loading: null };
+function loadComfyOptions(refresh){
+  if(CO.loading && !refresh) return CO.loading;
+  CO.loading = api("GET", "api/comfy/options" + (refresh ? "?refresh=1" : ""))
+    .catch(e => ({ok: false, error: e.message}))
+    .then(d => { CO.data = d; CO.loading = null; return d; });
+  return CO.loading;
+}
+const comfyOpts = (mid, key) => (CO.data && CO.data.ok && (CO.data.models[mid] || {})[key]) || null;
+const comfyLoras = () => (CO.data && CO.data.ok && CO.data.loras) || null;
+function optSelect(attrs, opts, cur){
+  const c = cur == null ? "" : String(cur);
+  const missing = c && !opts.includes(c);
+  return `<select ${attrs}><option value="">– select –</option>
+    ${missing ? `<option value="${esc(c)}" selected>${esc(c)} ⚠ not in ComfyUI</option>` : ""}
+    ${opts.map(o => `<option value="${esc(o)}" ${o===c?"selected":""}>${esc(o)}</option>`).join("")}</select>`;
+}
+
+// ---- Prompt templates ----
+const BUILTIN_TEMPLATES = {
+  "portrait": {
+    name: "Portrait", category: "Photorealism",
+    prompt: "Close-up portrait photo of a {subject}, {lighting}, {lens} lens, neutral background",
+    vars: {
+      subject: { woman: "a young woman", man: "a young man", elderly: "an elderly person" },
+      lighting: ["soft window light", "golden hour", "studio lighting", "overcast daylight"],
+      lens: ["85mm", "50mm", "135mm"]
+    },
+    vary: "single",
+    check: "Facial proportions, eyes, skin texture natural?"
+  },
+  "character-outfit": {
+    name: "Character Outfit", category: "Character",
+    prompt: "Full-body shot of a {character} wearing {outfit}, {setting}, {lighting}",
+    vars: {
+      character: ["young woman", "young man", "elderly woman", "elderly man"],
+      outfit: { casual: "casual street wear", formal: "elegant evening wear", armor: "fantasy armor", uniform: "military uniform" },
+      setting: ["city street", "forest path", "medieval town", "spaceship corridor"],
+      lighting: ["golden hour", "neon lights", "torchlight", "overcast"]
+    },
+    vary: "product",
+    check: "Clothing correct, proportions stable, setting recognizable?"
+  },
+  "text-render": {
+    name: "Text Rendering", category: "Text",
+    prompt: 'A {style} sign that reads "{text}", {setting}, {lighting}, photo',
+    vars: {
+      style: { wooden: "weathered wooden", neon: "neon glowing", metal: "brushed metal", chalk: "chalk on blackboard" },
+      text: ["HELLO WORLD", "OPEN", "CAFE", "WELCOME"],
+      setting: ["hanging outside a shop", "on a brick wall", "standing on a table"],
+      lighting: ["morning light", "night with glow", "golden hour"]
+    },
+    vary: "zip",
+    width: 1024, height: 768,
+    check: "Text legible, correct, no hallucination?"
+  },
+  "img2img-sketch": {
+    name: "img2img Sketch → Foto", category: "img2img",
+    prompt: "Photograph of a {scene}, {style}, {lighting}, high detail",
+    image: "sketch-house.png",
+    vars: {
+      scene: ["cozy cottage with garden", "modern house with pool", "mountain cabin"],
+      style: ["realistic photo", "architectural photography", "cinematic"],
+      lighting: ["sunny afternoon", "golden hour", "blue hour", "overcast"],
+      denoise: [0.3, 0.5, 0.7, 0.9]
+    },
+    vary: "single",
+    check: "From which denoise on does it follow the sketch? When does it become realistic?"
+  },
+  "product-photo": {
+    name: "Product Photo", category: "Photorealism",
+    prompt: "Product photo of a {object} on {surface}, {lighting}, {camera}, commercial photography",
+    vars: {
+      object: ["perfume bottle", "watch", "smartphone", "cosmetic jar", "sneaker"],
+      surface: ["wet black stone", "white marble", "gradient backdrop", "frosted glass"],
+      lighting: ["softbox", "rim light", "natural window light", "studio strobes"],
+      camera: ["macro lens", "85mm", "100mm macro", "tilt-shift"]
+    },
+    vary: "single",
+    check: "Materials, reflections, sharpness physically plausible?"
+  },
+  "landscape": {
+    name: "Landscape", category: "Landscape",
+    prompt: "Wide {view} of {location}, {time}, {weather}, {style}, ultra wide angle",
+    vars: {
+      view: ["panorama", "aerial view", "drone shot"],
+      location: ["mountain lake", "coastal cliffs", "rolling hills", "desert dunes", "forest valley"],
+      time: ["sunrise", "golden hour", "blue hour", "midday", "night with stars"],
+      weather: ["clear", "misty", "stormy", "foggy", "cloudy"],
+      style: ["photorealistic", "cinematic", "painterly"]
+    },
+    vary: "single",
+    width: 1344, height: 768,
+    check: "Composition, lighting mood, depth natural?"
+  },
+  "style-transfer": {
+    name: "Style Transfer", category: "Style",
+    negative: "",
+    prompt: "{subject} in the style of {artist}, {medium}, {details}",
+    vars: {
+      subject: ["a cat", "a landscape", "a portrait", "a still life", "a cityscape"],
+      artist: ["Van Gogh", "Monet", "Picasso", "Hokusai", "Dali", "Klimt"],
+      medium: ["oil painting", "watercolor", "woodblock print", "charcoal sketch", "digital art"],
+      details: ["vivid colors", "expressive brushstrokes", "flat colors", "surreal elements"]
+    },
+    vary: "product",
+    check: "Style consistently recognizable, not just a filter over a photo?"
+  }
+};
+
+function loadTemplates(){
+  try { return JSON.parse(localStorage.getItem("cb2:prompt-templates") || "{}"); } catch(e){ return {}; }
+}
+function saveTemplates(t){ localStorage.setItem("cb2:prompt-templates", JSON.stringify(t)); }
+function allTemplates(){ return {...BUILTIN_TEMPLATES, ...loadTemplates()}; }
+
+function promptFromTemplate(tmpl, id){
+  return {
+    id, category: tmpl.category || "",
+    prompt: tmpl.prompt || "",
+    negative: tmpl.negative !== undefined ? tmpl.negative : undefined,
+    vars: tmpl.vars || {},
+    vary: tmpl.vary || "product",
+    width: tmpl.width, height: tmpl.height,
+    check: tmpl.check || "",
+    params: tmpl.params || {},
+    model_params: tmpl.model_params || {}
+  };
+}
+const LABEL_LINE = /^([\wäöüÄÖÜß .+\-]{1,30}):\s+(.+)$/;
+const IMAGE_KEY = /^(image|mask)\w*$/;
+
+async function api(method, url, body){
+  const r = await fetch(url, {method, headers: body ? {"Content-Type": "application/json"} : {}, body: body ? JSON.stringify(body) : undefined});
+  let j = {}; try { j = await r.json(); } catch(e){}
+  if(!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+  return j;
+}
+function parseScalar(t){
+  const s = String(t).trim();
+  if(s === "") return undefined;
+  if(s === "true") return true;
+  if(s === "false") return false;
+  if(/^-?\d+$/.test(s)) return parseInt(s, 10);
+  if(/^-?\d*\.\d+$/.test(s)) return parseFloat(s);
+  return String(t).includes("\n") ? t : s;
+}
+const showScalar = v => v === undefined || v === null ? "" : String(v);
+function getAt(root, path){ return path.reduce((o, k) => o == null ? undefined : o[k], root); }
+function setAt(root, path, v){
+  let o = root;
+  for(let i = 0; i < path.length - 1; i++){
+    if(o[path[i]] == null || typeof o[path[i]] !== "object") o[path[i]] = {};
+    o = o[path[i]];
+  }
+  const last = path[path.length - 1];
+  if(v === undefined) delete o[last]; else o[last] = v;
+}
+const rootOf = name => name === "cfg" ? SU.cfg : SU.doc;
+function bind(root, path, type = "text", extra = ""){
+  return `data-root="${root}" data-b='${esc(JSON.stringify(path))}' data-t="${type}" ${extra}`;
+}
+function fieldVal(root, path, type){
+  const v = getAt(rootOf(root), path);
+  if(type === "seeds") return Array.isArray(v) ? v.join(", ") : "";
+  return showScalar(v);
+}
+
+async function suLoad(){
+  try { SU.data = await api("GET", "api/setup"); }
+  catch(e){ $("#setup").innerHTML = `<p class="empty">Setup not available: ${esc(e.message)}</p>`; return; }
+  SU.cfg = SU.data.config || {}; SU.cfg.models = SU.cfg.models || {};
+  SU.doc = SU.data.prompts || {}; SU.doc.prompts = SU.doc.prompts || []; SU.doc.vars = SU.doc.vars || {};
+  SU.dirty = {config: false, prompts: false}; SU.error = "";
+  if(!SU.model || !SU.cfg.models[SU.model]) SU.model = Object.keys(SU.cfg.models)[0] || null;
+  if(!SU.prompt || !SU.doc.prompts.some(p => p.id === SU.prompt)) SU.prompt = SU.doc.prompts[0]?.id || null;
+  suRender();
+  // after a save the mapping may have changed – fetch fresh lists (object_info stays cached on the server)
+  CO.data = null;
+  loadComfyOptions().then(() => { if(SU.sec === "models") keepFocus(suRender); });
+}
+function markDirty(which){ SU.dirty[which] = true; SU.info = ""; SU.error = ""; suBar(); }
+function suErr(msg){ SU.error = msg; SU.info = ""; suBar(); }
+
+// ---------------------------------------------------------------- Frame
+function suRender(){
+  const secs = [["models","Models"],["prompts","Prompts"],["sets","Variable Sets"],["general","General"]];
+  let main = "";
+  try {
+    main = SU.sec === "models" ? suModels() : SU.sec === "prompts" ? suPrompts() : SU.sec === "sets" ? suSets() : suGeneral();
+  } catch(e){ main = `<div class="su-msg err">${esc(e.stack || e.message)}</div>`; }
+  $("#setup").innerHTML = `<div class="su">
+    <aside class="su-nav">${secs.map(([k,l]) => `<button data-sec="${k}" class="${SU.sec===k?"on":""}">${l}</button>`).join("")}
+      <div class="su-bar" id="su-bar"></div><div class="su-check" id="su-check"></div></aside>
+    <section class="su-main">${main}</section></div>`;
+  suBar(); suCheckRender();
+  if(SU.sec === "models") suEnsureAnalysis();
+}
+function suBar(){
+  const el = $("#su-bar"); if(!el) return;
+  const d = SU.dirty.config || SU.dirty.prompts;
+  el.innerHTML = `<div class="${d?"dirty":"hint"}">${d ? "Unsaved changes" + (SU.dirty.config && SU.dirty.prompts ? "" : SU.dirty.config ? " (Config)" : " (Prompts)") : "All saved"}</div>
+    <button class="btn-p" data-act="save" ${d?"":"disabled"}>Save</button>
+    <div class="row"><button data-act="check" style="flex:1">Check</button><button data-act="discard" ${d?"":"disabled"} style="flex:1">Discard</button></div>
+    ${SU.error ? `<div class="su-msg err">${esc(SU.error)}</div>` : ""}${SU.info ? `<div class="hint">${esc(SU.info)}</div>` : ""}`;
+}
+function suCheckRender(){
+  const el = $("#su-check"); if(!el || !SU.check) return;
+  el.innerHTML = `<b style="font-size:13px">Checks</b>` + SU.check.map(r =>
+    `<div>${r.ok ? "✓" : r.warn ? "⚠" : "✗"} <b>${esc(r.model)}</b> · ${esc(r.mode)}<br><span class="hint">${esc(r.msg)}</span></div>`).join("");
+}
+async function suSave(){
+  SU.error = "";
+  try {
+    if(SU.dirty.config){ await api("PUT", "api/setup/config", SU.cfg); SU.dirty.config = false; }
+    if(SU.dirty.prompts){ await api("PUT", "api/setup/prompts", SU.doc); SU.dirty.prompts = false; }
+    toast("Saved");
+    await suLoad();
+    await suRunCheck(true);
+    reloadGalleryData();
+  } catch(e){ suErr(e.message); }
+}
+async function suRunCheck(quiet){
+  if(SU.dirty.config || SU.dirty.prompts){ return suSave(); }
+  try { SU.check = (await api("POST", "api/check", {})).results; suCheckRender();
+    if(!quiet) toast(SU.check.every(r => r.ok) ? "All good" : "There are some notices");
+  } catch(e){ suErr(e.message); }
+}
+async function reloadGalleryData(){
+  try { const r = await fetch("api/data"); const d = await r.json(); if(!d.error){ D = d; index(); fillControls(); } } catch(e){}
+}
+window.addEventListener("beforeunload", e => { if(SU.dirty.config || SU.dirty.prompts){ e.preventDefault(); e.returnValue = ""; } });
+
+// ---------------------------------------------------------------- Dateien
+function pickFile(accept){
+  return new Promise(res => { const i = document.createElement("input"); i.type = "file"; i.accept = accept;
+    i.onchange = () => res(i.files[0] || null); i.click(); });
+}
+async function uploadWorkflow(){
+  const f = await pickFile(".json,application/json"); if(!f) return null;
+  let wf; try { wf = JSON.parse(await f.text()); } catch(e){ suErr("That is not a valid JSON file."); return null; }
+  const send = overwrite => api("POST", "api/upload", {kind: "workflow", name: f.name, workflow: wf, overwrite});
+  try {
+    let r;
+    try { r = await send(false); }
+    catch(e){ if(/already exists/.test(e.message) && confirm(e.message + "\nOverwrite?")) r = await send(true); else throw e; }
+    SU.data.files.workflows = [...new Set([...SU.data.files.workflows, r.path])].sort();
+    delete SU.analysis[r.path];
+    return r.path;
+  } catch(e){ suErr(e.message); return null; }
+}
+async function uploadInput(){
+  const f = await pickFile("image/png,image/jpeg,image/webp"); if(!f) return null;
+  const dataUrl = await new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(f); });
+  const send = overwrite => api("POST", "api/upload", {kind: "input", name: f.name, data: dataUrl, overwrite});
+  try {
+    let r;
+    try { r = await send(false); }
+    catch(e){ if(/already exists/.test(e.message) && confirm(e.message + "\nOverwrite?")) r = await send(true); else throw e; }
+    SU.data.files.inputs = [...new Set([...SU.data.files.inputs, r.path])].sort();
+    return r.path;
+  } catch(e){ suErr(e.message); return null; }
+}
+
+// ---------------------------------------------------------------- Models
+function specOf(m, mode){
+  const raw = mode === "txt2img" ? (m.workflow || (m.workflows || {}).txt2img) : (m.workflows || {})[mode];
+  if(!raw) return null;
+  return typeof raw === "string" ? {file: raw, map: {}} : {file: raw.file || "", map: raw.map || {}};
+}
+function setSpec(m, mode, spec){
+  const val = spec ? (Object.keys(spec.map || {}).length ? {file: spec.file, map: spec.map} : spec.file) : undefined;
+  if(mode === "txt2img"){
+    if(m.workflows) delete m.workflows.txt2img;
+    if(val === undefined) delete m.workflow; else m.workflow = val;
+  } else {
+    m.workflows = m.workflows || {};
+    if(val === undefined) delete m.workflows[mode]; else m.workflows[mode] = val;
+  }
+  if(m.workflows && !Object.keys(m.workflows).length) delete m.workflows;
+}
+function modesOf(m){
+  const out = [];
+  if(m.workflow || (m.workflows || {}).txt2img) out.push("txt2img");
+  Object.keys(m.workflows || {}).forEach(k => { if(!out.includes(k)) out.push(k); });
+  return out;
+}
+const asList = t => Array.isArray(t) ? t : (t ? [t] : []);
+function hasValue(m, key){
+  if((SU.data.builtin_keys || []).includes(key) || IMAGE_KEY.test(key)) return true;
+  return key in (SU.cfg.defaults || {}) || key in (m.params || {});
+}
+
+function suModels(){
+  const ids = Object.keys(SU.cfg.models);
+  const list = ids.map(id => { const m = SU.cfg.models[id];
+    return `<button data-model="${esc(id)}" class="${SU.model===id?"on":""}">${esc(m.label || id)}${m.enabled===false?" ⏸":""}<small>${esc(id)} · ${modesOf(m).join(", ") || "no workflow"}</small></button>`; }).join("");
+  const m = SU.cfg.models[SU.model];
+  return `<div class="su-cols"><div class="su-list">${list}<button data-act="add-model">＋ Model</button></div>
+    <div class="su-edit">${m ? suModelEdit(SU.model, m) : `<p class="hint">No model yet. Create one and upload a workflow for it (saved in ComfyUI via "Export (API)").</p>`}</div></div>`;
+}
+function suModelEdit(id, m){
+  const modes = modesOf(m);
+  if(!modes.includes(SU.mode)) SU.mode = modes[0] || "txt2img";
+  const wfOpts = cur => [`<option value="">– select –</option>`, ...SU.data.files.workflows.map(f => `<option ${f===cur?"selected":""}>${esc(f)}</option>`), `<option value="__upload">Upload …</option>`].join("");
+  const wfRows = modes.map(mode => { const sp = specOf(m, mode);
+    const nmap = Object.keys(sp.map).length;
+    return `<tr><td class="k">${esc(mode)}</td><td><div class="row"><select data-wf="${esc(mode)}" style="flex:1">${wfOpts(sp.file)}</select>
+      <button data-act="map-mode" data-mode="${esc(mode)}" class="${SU.mode===mode?"btn-p":""}">Mapping${nmap?` (${nmap})`:""}</button></div></td>
+      <td style="width:30px"><button class="x" data-act="del-mode" data-mode="${esc(mode)}" title="Remove mode">✕</button></td></tr>`; }).join("");
+  const sp = specOf(m, SU.mode);
+  return `<h2>${esc(m.label || id)} <span class="hint">${esc(id)}</span></h2>
+    <div class="su-grid">
+      <label>Display name</label><input type="text" ${bind("cfg", ["models", id, "label"])} value="${esc(m.label || "")}" data-r="1">
+      <label>Notes</label><input type="text" ${bind("cfg", ["models", id, "notes"])} value="${esc(m.notes || "")}">
+      <label>Enabled</label><label style="text-align:left"><input type="checkbox" data-act="toggle-enabled" ${m.enabled===false?"":"checked"}> included in <code>bench run</code> without <code>--models</code></label>
+    </div>
+    <h3>Workflows</h3>
+    <table class="kv">${wfRows || `<tr><td class="hint">No workflow yet.</td></tr>`}</table>
+    <div class="row" style="margin-top:8px"><button data-act="add-mode">＋ Workflow for mode …</button>
+      <span class="hint">txt2img is the default. Add your own workflow for img2img and similar.</span></div>
+    ${sp ? suMapping(id, m, SU.mode, sp) : ""}
+    <h3>Parameter</h3>
+    <p class="hint" style="margin-top:0">Values for mapped fields or <code>{{placeholder}}</code> that apply to this model. They override the defaults from "General", which prompts can in turn override.</p>
+    ${suComfyBanner()}
+    ${kvTable("cfg", ["models", id, "params"], m.params || {}, k => comfyOpts(id, k))}
+    <h3>LoRAs</h3>
+    <p class="hint" style="margin-top:0">Injected into the workflow during a run (Generate tab: one combination or a sweep).</p>
+    ${suLoras(id, m)}
+    ${SU.varDlg && SU.varDlg.model === id ? suVarDlg(id, m) : ""}
+    <div class="row" style="margin-top:14px;justify-content:space-between">
+      <button data-act="var-files" ${Object.keys((CO.data && CO.data.ok && CO.data.models[id]) || {}).length ? "" : "disabled title=\"Needs a mapped choice field (e.g. checkpoint) and a reachable ComfyUI\""}>Variants from files …</button>
+      <button data-act="del-model" class="x" style="font-size:13px">Delete model</button></div>`;
+}
+function suComfyBanner(){
+  if(!CO.data) return `<p class="hint">Loading option lists from ComfyUI …</p>`;
+  if(!CO.data.ok) return `<div class="warnline">${esc(CO.data.error)} – no option lists, values are free text. <button data-act="co-refresh">↻ Retry</button></div>`;
+  return `<p class="hint">Fields with a list come from ComfyUI. <button data-act="co-refresh" title="Reload the lists, e.g. after downloading new models">↻ Refresh lists</button></p>`;
+}
+function suLoras(id, m){
+  const files = comfyLoras(), P = (n, f) => ["models", id, "loras", n, f];
+  const rows = Object.entries(m.loras || {}).map(([n, info]) => { info = info || {};
+    const file = files ? optSelect(bind("cfg", P(n, "name"), "text", 'data-r="1" style="flex:2;min-width:160px"'), files, info.name)
+                       : `<input type="text" ${bind("cfg", P(n, "name"))} value="${esc(info.name || "")}" placeholder="file, e.g. style.safetensors" style="flex:2;min-width:160px">`;
+    return `<tr><td class="k">${esc(n)}</td><td><div class="row">${file}
+        <input type="text" inputmode="decimal" ${bind("cfg", P(n, "default_strength"), "scalar")} value="${esc(showScalar(info.default_strength))}" placeholder="strength 0.8" style="width:100px">
+        <input type="text" ${bind("cfg", P(n, "trigger"))} value="${esc(info.trigger || "")}" placeholder="trigger word (optional)" style="flex:1;min-width:120px"></div></td>
+      <td style="width:30px"><button class="x" data-act="lora-del" data-lora="${esc(n)}">✕</button></td></tr>`; }).join("");
+  return `<table class="kv">${rows}</table><button data-act="lora-add" style="margin-top:6px">＋ LoRA</button>`;
+}
+function suVarDlg(id, m){
+  const d = SU.varDlg, keys = Object.keys(CO.data.models[id] || {});
+  const q = d.q.trim().toLowerCase();
+  const list = (comfyOpts(id, d.key) || []).filter(o => !q || o.toLowerCase().includes(q)).map(o =>
+    `<label class="rn-item"><input type="checkbox" data-vd-file="${esc(o)}" ${d.sel.includes(o)?"checked":""}><span>${esc(o)}</span></label>`).join("");
+  return `<div class="su-vd"><h3>Variants from files</h3>
+    <p class="hint" style="margin-top:0">Creates one model per file: a copy of <b>${esc(m.label || id)}</b> with the same workflows, mapping, parameters and LoRAs – only this value differs. Saved with "Save".</p>
+    <div class="row"><select data-vd-key>${keys.map(k => `<option ${k===d.key?"selected":""}>${esc(k)}</option>`).join("")}</select>
+      <input type="search" id="su-vdq" placeholder="Search files …" value="${esc(d.q)}" style="flex:1;min-width:160px">
+      <button data-act="vd-all">all</button><button data-act="vd-none">none</button></div>
+    <div class="su-vd-list">${list || `<p class="hint">No matching files.</p>`}</div>
+    <div class="row" style="justify-content:flex-end"><button class="btn-p" data-act="vd-create" ${d.sel.length?"":"disabled"}>Create ${d.sel.length} model${d.sel.length===1?"":"s"}</button><button data-act="vd-close">Cancel</button></div></div>`;
+}
+function kvTable(root, path, obj, optsOf){
+  const rows = Object.entries(obj).map(([k, v]) => {
+    const long = typeof v === "string" && (v.length > 60 || v.includes("\n"));
+    const opts = optsOf && optsOf(k);
+    const input = opts ? optSelect(bind(root, [...path, k], "scalar", 'data-r="1"'), opts, v)
+                : long ? `<textarea rows="2" ${bind(root, [...path, k], "scalar")}>${esc(showScalar(v))}</textarea>`
+                       : `<input type="text" ${bind(root, [...path, k], "scalar")} value="${esc(showScalar(v))}">`;
+    return `<tr><td class="k">${esc(k)}</td><td>${input}</td><td style="width:30px"><button class="x" data-act="kv-del" data-root="${root}" data-path='${esc(JSON.stringify([...path, k]))}'>✕</button></td></tr>`;
+  }).join("");
+  return `<table class="kv">${rows}</table><button data-act="kv-add" data-root="${root}" data-path='${esc(JSON.stringify(path))}' style="margin-top:6px">＋ Value</button>
+    <span class="hint">Numbers and true/false are saved as such automatically.</span>`;
+}
+
+function suMapping(id, m, mode, sp){
+  const an = SU.analysis[sp.file];
+  const keys = Object.keys(sp.map);
+  const sum = keys.map(k => { const ok = hasValue(m, k);
+    return `<span class="${ok?"":"warn"}" title="${ok?"":"No value: set as a parameter"}"><b>${esc(k)}</b> → ${asList(sp.map[k]).map(esc).join(", ")}${ok?"":" ⚠"}</span>`; }).join("");
+  let body;
+  if(!sp.file) body = `<p class="hint">Select a workflow file first.</p>`;
+  else if(!an) body = `<p class="hint">Analyzing workflow …</p>`;
+  else if(an.error) body = `<div class="su-msg err">${esc(an.error)}</div>`;
+  else body = suNodes(m, sp, an);
+  const missing = keys.filter(k => !hasValue(m, k));
+  return `<h3>Mapping · ${esc(mode)} <span class="hint">${esc(sp.file)}</span></h3>
+    <p class="hint" style="margin-top:0">Which field in the workflow gets which value? One value can go into several fields (e.g. seed in Sampler and LLM). A mapped field is overwritten during the run, even if there is a link.</p>
+    <div class="mapsum">${sum || `<span>nothing mapped yet</span>`}</div>
+    ${missing.length ? `<div class="warnline">No value: ${missing.map(esc).join(", ")}. <button data-act="fill-missing">Take values from workflow</button></div>` : ""}
+    ${an && an.placeholders && an.placeholders.length ? `<p class="hint">The workflow already contains placeholders: ${an.placeholders.map(p=>`<code>{{${esc(p)}}}</code>`).join(" ")} – these keep working.</p>` : ""}
+    ${an && !an.error && !an.has_output ? `<div class="warnline">No Save/Preview Image node found – the workflow will not deliver an image this way.</div>` : ""}
+    <div class="row" style="margin:8px 0">
+      <button data-act="apply-sugg" ${an && !an.error ? "" : "disabled"}>Apply suggestions</button>
+      <button data-act="clear-map">Clear mapping</button>
+      <input type="search" id="su-nodeq" placeholder="Search node or field…" value="${esc(SU.nodeQ)}" style="width:200px">
+      <label><input type="checkbox" data-act="all-nodes" ${SU.allNodes?"checked":""}> include pure link nodes</label>
+    </div>${body}`;
+}
+function suNodes(m, sp, an){
+  const rev = {};
+  Object.entries(sp.map).forEach(([k, t]) => asList(t).forEach(x => rev[x] = k));
+  const sugg = {};
+  Object.entries(an.suggest || {}).forEach(([k, t]) => t.forEach(x => sugg[x] = k));
+  const custom = [...new Set([...Object.keys(sp.map), ...Object.keys(m.params || {})])].filter(k => !SU.data.standard_keys.includes(k));
+  const options = cur => [`<option value="">—</option>`,
+    ...[...SU.data.standard_keys, ...custom].map(k => `<option ${k===cur?"selected":""}>${esc(k)}</option>`),
+    `<option value="__new">＋ custom name …</option>`].join("");
+  const q = SU.nodeQ.trim().toLowerCase();
+  const html = an.nodes.map(n => {
+    const hay = (n.id + " " + n.class_type + " " + n.title + " " + n.inputs.map(i => i.name).join(" ")).toLowerCase();
+    if(q && !hay.includes(q)) return "";
+    const anyMapped = n.inputs.some(i => rev[`${n.id}/${i.name}`]);
+    if(!SU.allNodes && !anyMapped && !n.inputs.some(i => !i.link)) return "";
+    const rows = n.inputs.map(i => {
+      const t = `${n.id}/${i.name}`, cur = rev[t] || "";
+      const v = i.link ? `→ Node ${i.value[0]}` : (typeof i.value === "string" ? JSON.stringify(i.value) : String(i.value));
+      const s = !cur && sugg[t] ? ` <span class="hint" title="Suggestion">· Suggestion: ${esc(sugg[t])}</span>` : "";
+      return `<div class="inp ${cur?"mapped":""}"><span class="n">${esc(i.name)}</span><span class="v" title="${esc(v.slice(0, 600))}">${esc(v.slice(0, 140))}${s}</span>
+        <select data-map="${esc(t)}">${options(cur)}</select></div>`;
+    }).join("");
+    return `<div class="node"><div class="nh">${esc(n.title || n.class_type)} <small>#${esc(n.id)} · ${esc(n.class_type)}</small></div>${rows}</div>`;
+  }).join("");
+  return `<div class="nodes">${html || `<p class="hint" style="padding:8px">No matching nodes.</p>`}</div>`;
+}
+async function suEnsureAnalysis(){
+  const m = SU.cfg.models[SU.model]; if(!m) return;
+  const sp = specOf(m, SU.mode); if(!sp || !sp.file || SU.analysis[sp.file]) return;
+  const file = sp.file;
+  try { SU.analysis[file] = await api("POST", "api/workflow/analyze", {file}); }
+  catch(e){ SU.analysis[file] = {error: e.message}; }
+  if(SU.sec === "models") suRender();
+}
+function applySuggestions(m, mode, onlyIfEmpty){
+  const sp = specOf(m, mode); const an = SU.analysis[sp.file];
+  if(!an || an.error) return false;
+  if(onlyIfEmpty && Object.keys(sp.map).length) return false;
+  const taken = new Set(Object.values(sp.map).flatMap(asList));
+  for(const [k, targets] of Object.entries(an.suggest || {})){
+    for(const t of targets){
+      if(taken.has(t)) continue;
+      sp.map[k] = [...asList(sp.map[k]), t]; taken.add(t);
+    }
+  }
+  setSpec(m, mode, sp);
+  fillFromWorkflow(m, mode, Object.keys(an.suggest || {}));
+  return true;
+}
+function fillFromWorkflow(m, mode, keys){
+  // Adopt values the model itself needs (sampler, steps, model negative …) as parameters
+  const sp = specOf(m, mode); const an = SU.analysis[sp.file]; if(!an || an.error) return;
+  const defaults = SU.cfg.defaults || {};
+  const skip = new Set(["prompt", "seed", "width", "height", "image"]);
+  const nodeVal = t => { const [nid, ...rest] = t.split("/"); const inp = rest.join("/");
+    const n = an.nodes.find(x => x.id === nid); const i = n && n.inputs.find(x => x.name === inp);
+    return i && !i.link ? i.value : undefined; };
+  for(const k of keys){
+    if(skip.has(k) || (m.params && k in m.params)) continue;
+    const v = (an.values && k in an.values) ? an.values[k] : nodeVal(asList(sp.map[k])[0] || "");
+    if(v === undefined || v === null || (typeof v === "string" && !v.trim())) continue;
+    if(k in defaults && defaults[k] === v) continue;
+    m.params = m.params || {}; m.params[k] = v;
+  }
+}
+
+// ---------------------------------------------------------------- Prompts
+function normVar(d){
+  if(typeof d === "string" && d.startsWith("$")){ d = SU.doc.vars[d.slice(1)]; if(d === undefined) return null; }
+  if(Array.isArray(d)) return d.map(v => [String(v), v]);
+  if(d && typeof d === "object") return Object.entries(d);
+  return [[String(d), d]];
+}
+function expandJS(p){
+  const vars = p.vars || {}, names = Object.keys(vars);
+  if(!names.length) return [{}];
+  const opts = names.map(n => normVar(vars[n]));
+  if(opts.some(o => !o || !o.length)) return null;
+  let combos = [];
+  const mode = p.vary || "product";
+  if(mode === "zip"){ const L = opts[0].length; if(opts.some(o => o.length !== L)) return null; for(let i = 0; i < L; i++) combos.push(opts.map(o => o[i])); }
+  else if(mode === "single"){ const base = opts.map(o => o[0]); combos.push(base); opts.forEach((o, i) => o.slice(1).forEach(a => { const c = base.slice(); c[i] = a; combos.push(c); })); }
+  else { combos = [[]]; opts.forEach(o => { combos = combos.flatMap(c => o.map(a => [...c, a])); }); }
+  return combos.map(c => Object.fromEntries(names.map((n, i) => [n, {label: c[i][0], value: c[i][1]}])));
+}
+const renderVarsJS = (t, v) => String(t || "").replace(/(?<!\{)\{(\w+)\}(?!\})/g, (m, n) => n in v ? String(v[n].value) : m);
+function defnToText(d){
+  if(Array.isArray(d)) return d.map(showScalar).join("\n");
+  if(d && typeof d === "object") return Object.entries(d).map(([k, v]) => `${k}: ${v}`).join("\n");
+  return showScalar(d);
+}
+function textToDefn(t){
+  const lines = t.split("\n").map(l => l.trim()).filter(Boolean);
+  if(!lines.length) return [];
+  if(lines.every(l => LABEL_LINE.test(l))){ const o = {}; lines.forEach(l => { const x = l.match(LABEL_LINE); o[x[1].trim()] = x[2]; }); return o; }
+  return lines.map(parseScalar);
+}
+function promptModeJS(p){
+  if(p.mode) return p.mode;
+  const keys = [...Object.keys(p), ...Object.keys(p.vars || {}), ...Object.keys(p.params || {})];
+  return keys.some(k => IMAGE_KEY.test(k)) ? "img2img" : "txt2img";
+}
+
+function suPrompts(){
+  const q = SU.pq.trim().toLowerCase();
+  const groups = {};
+  SU.doc.prompts.forEach(p => { if(q && !(p.id + " " + (p.category||"") + " " + p.prompt).toLowerCase().includes(q)) return;
+    (groups[p.category || "uncategorized"] = groups[p.category || "uncategorized"] || []).push(p); });
+  const list = Object.entries(groups).map(([c, ps]) => `<div class="grp">${esc(c)}</div>` + ps.map(p => {
+    const n = (expandJS(p) || []).length;
+    return `<button data-prompt="${esc(p.id)}" class="${SU.prompt===p.id?"on":""}">${esc(p.id)}${n>1?` <span class="hint">×${n}</span>`:""}</button>`; }).join("")).join("");
+  const p = SU.doc.prompts.find(x => x.id === SU.prompt);
+  return `<div class="su-cols"><div class="su-list"><input type="search" id="su-pq" placeholder="Search…" value="${esc(SU.pq)}" style="margin-bottom:6px">
+      ${list}
+      <div class="row" style="margin-top:8px;gap:4px">
+        <button data-act="add-prompt" style="flex:1">＋ Prompt</button>
+        <button data-act="add-prompt-tmpl" title="Create prompt from template" style="width:32px">📋</button>
+      </div>
+      <div class="row" style="margin-top:4px;gap:4px">
+        <button data-act="save-as-tmpl" ${p?"":"disabled"} title="Save current prompt as template" style="flex:1">Save as template</button>
+        <button data-act="manage-tmpl" title="Manage templates" style="width:32px">⚙</button>
+      </div>
+    </div>
+    <div class="su-edit">${p ? suPromptEdit(p) : `<p class="hint">No prompt selected.</p>`}</div></div>`;
+}
+function suPromptEdit(p){
+  const i = SU.doc.prompts.indexOf(p);
+  const P = k => ["prompts", i, k];
+  const cats = [...new Set(SU.doc.prompts.map(x => x.category).filter(Boolean))];
+  const allModes = [...new Set(Object.values(SU.cfg.models).flatMap(modesOf))];
+  const ownNeg = "negative" in p;
+  const imgOpts = cur => [`<option value="">– no image (txt2img) –</option>`, ...SU.data.files.inputs.map(f => `<option ${f===cur?"selected":""}>${esc(f)}</option>`), `<option value="__upload">Upload …</option>`].join("");
+  const setNames = Object.keys(SU.doc.vars);
+  const vars = Object.entries(p.vars || {}).map(([n, d]) => {
+    const isRef = typeof d === "string" && d.startsWith("$");
+    const src = [`<option value="" ${isRef?"":"selected"}>own values</option>`, ...setNames.map(sn => `<option value="$${esc(sn)}" ${d===("$"+sn)?"selected":""}>Set: ${esc(sn)}</option>`)].join("");
+    return `<tr><td style="width:150px"><input type="text" data-varname="${esc(n)}" value="${esc(n)}"></td>
+      <td><select data-varsrc="${esc(n)}" style="margin-bottom:4px">${src}</select>
+        ${isRef ? `<div class="hint">${esc(defnToText(SU.doc.vars[d.slice(1)] || []).split("\n").join(" · "))}</div>`
+                : `<textarea rows="3" data-varvals="${esc(n)}" placeholder="one value per line – or Label: inserted text">${esc(defnToText(d))}</textarea>`}</td>
+      <td style="width:30px"><button class="x" data-act="del-var" data-var="${esc(n)}">✕</button></td></tr>`; }).join("");
+  return `<h2>${esc(p.id)}</h2>
+    <div class="su-grid">
+      <label>ID</label><div><input type="text" data-act-change="rename-prompt" value="${esc(p.id)}"><div class="hint">Renaming detaches the prompt from images already generated (they stay in the gallery).</div></div>
+      <label>Category</label><input type="text" list="su-cats" ${bind("doc", P("category"))} value="${esc(p.category || "")}" data-r="1"><datalist id="su-cats">${cats.map(c => `<option>${esc(c)}</option>`).join("")}</datalist>
+      <label>Prompt</label><textarea rows="5" ${bind("doc", P("prompt"), "keep")} data-prev="1">${esc(p.prompt || "")}</textarea>
+      <label>Negative</label><div><select data-act-change="neg-mode" style="width:auto;margin-bottom:4px"><option value="model" ${ownNeg?"":"selected"}>Model default</option><option value="own" ${ownNeg?"selected":""}>own (may be empty)</option></select>
+        ${ownNeg ? `<textarea rows="2" ${bind("doc", P("negative"), "keep")} data-prev="1">${esc(p.negative)}</textarea>` : ""}</div>
+      <label>What to check</label><input type="text" ${bind("doc", P("check"))} value="${esc(p.check || "")}">
+      <label>Size</label><div class="row"><input type="text" class="short" placeholder="Width" ${bind("doc", P("width"), "scalar")} value="${esc(showScalar(p.width))}">×<input type="text" class="short" placeholder="Height" ${bind("doc", P("height"), "scalar")} value="${esc(showScalar(p.height))}"><span class="hint">empty = default</span></div>
+      <label>Seeds</label><div class="row"><input type="text" ${bind("doc", P("seeds"), "seeds")} value="${esc(fieldVal("doc", P("seeds"), "seeds"))}" placeholder="Default: ${esc((SU.cfg.seeds || [42]).join(", "))}" style="max-width:260px" data-prev="1"></div>
+      <label>Input image</label><div class="row"><select data-act-change="prompt-image" style="max-width:320px">${imgOpts(p.image)}</select>
+        ${p.image ? `<img class="thumb" src="inputs/${encodeURIComponent(p.image)}" alt="">` : ""}<span class="hint">with an image the img2img workflow runs</span></div>
+      <label>Mode</label><select ${bind("doc", P("mode"), "text")} data-r="1" style="max-width:200px"><option value="" ${p.mode?"":"selected"}>automatic (${esc(promptModeJS({...p, mode: undefined}))})</option>${allModes.map(x => `<option ${p.mode===x?"selected":""}>${esc(x)}</option>`).join("")}</select>
+    </div>
+    <h3>Variables</h3>
+    <p class="hint" style="margin-top:0">Use it in the prompt as <code>{name}</code>. If a variable is named like a workflow value (cfg, steps, denoise, enhance …), it controls the workflow directly.</p>
+    <table class="kv">${vars}</table>
+    <div class="row" style="margin-top:6px"><button data-act="add-var">＋ Variable</button>
+      <label>Combine</label><select ${bind("doc", P("vary"), "text")} data-r="1" style="width:auto">
+        ${[["","all combinations (product)"],["zip","pairwise (zip)"],["single","one at a time from base (single)"]].map(([v,l]) => `<option value="${v}" ${(p.vary||"")===v?"selected":""}>${l}</option>`).join("")}</select></div>
+    <div class="prev" id="su-prev">${suPreview(p)}</div>
+    <h3>Parameter</h3>
+    <p class="hint" style="margin-top:0">Apply to this prompt in all models, e.g. denoise or steps.</p>
+    ${kvTable("doc", P("params"), p.params || {})}
+    ${p.model_params ? `<p class="hint">Model-specific parameters (model_params) are kept and can be edited in the prompts.yaml.</p>` : ""}
+    <div class="row" style="margin-top:14px;justify-content:space-between"><button data-act="dup-prompt">Duplicate</button><button data-act="del-prompt" class="x" style="font-size:13px">Delete prompt</button></div>`;
+}
+function suPreview(p){
+  const vs = expandJS(p);
+  if(!vs) return `<span class="warnline">Variables incomplete (empty list, missing set, or lists of different lengths in zip).</span>`;
+  const mode = promptModeJS(p);
+  const models = Object.values(SU.cfg.models).filter(m => m.enabled !== false && modesOf(m).includes(mode)).length;
+  const seeds = (p.seeds || SU.cfg.seeds || [42]).length;
+  const used = new Set([...String(p.prompt || "").matchAll(/(?<!\{)\{(\w+)\}(?!\})/g)].map(x => x[1]));
+  const undef = [...used].filter(n => !(n in (p.vars || {})));
+  const notInText = Object.keys(p.vars || {}).filter(n => !used.has(n) && !String(p.negative || "").includes(`{${n}}`));
+  return `<b>${vs.length} variant${vs.length===1?"":"s"}</b> × ${seeds} Seed${seeds===1?"":"s"} × ${models} model${models===1?"":"s"} (${esc(mode)}) = <b>${vs.length*seeds*models} images</b>
+    ${undef.length ? `<div class="warnline">In the text but not defined: ${undef.map(n => `{${esc(n)}}`).join(", ")}</div>` : ""}
+    ${notInText.length ? `<div class="hint">Not in the text: ${notInText.map(esc).join(", ")} – it only applies if a workflow value has that name.</div>` : ""}
+    ${vs.slice(0, 4).map(v => `<div>${Object.keys(v).length ? varChips(Object.fromEntries(Object.entries(v).map(([k, x]) => [k, x.label]))) + "<br>" : ""}<span class="hint">${esc(renderVarsJS(p.prompt, v).slice(0, 260))}</span></div>`).join("")}
+    ${vs.length > 4 ? `<div class="hint">… and ${vs.length - 4} more</div>` : ""}`;
+}
+
+// ---------------------------------------------------------------- Variable Sets & General
+function suSets(){
+  const uses = n => SU.doc.prompts.filter(p => Object.values(p.vars || {}).includes("$" + n)).map(p => p.id);
+  const rows = Object.entries(SU.doc.vars).map(([n, d]) => { const u = uses(n);
+    return `<tr><td style="width:170px"><input type="text" data-setname="${esc(n)}" value="${esc(n)}"><div class="hint">${u.length ? "used by " + u.map(esc).join(", ") : "unused"}</div></td>
+      <td><textarea rows="4" data-setvals="${esc(n)}">${esc(defnToText(d))}</textarea></td>
+      <td style="width:30px"><button class="x" data-act="del-set" data-set="${esc(n)}">✕</button></td></tr>`; }).join("");
+  return `<div class="su-edit"><h2>Variablen-Sets</h2>
+    <p class="hint" style="margin-top:0">Value lists shared by several prompts, e.g. emotions or age groups. One value per line, or <code>Label: inserted text</code>. In the prompt, choose them as "Set" under variables.</p>
+    <table class="kv">${rows}</table><button data-act="add-set" style="margin-top:8px">＋ Set</button></div>`;
+}
+function suGeneral(){
+  return `<div class="su-edit"><h2>General</h2>
+    <div class="su-grid">
+      <label>ComfyUI address</label><div><input type="text" ${bind("cfg", ["server"])} value="${esc(SU.cfg.server || "")}" placeholder="http://127.0.0.1:8188"><div class="hint">In the Docker container, COMFYUI_URL takes precedence.</div></div>
+      <label>Seeds</label><input type="text" ${bind("cfg", ["seeds"], "seeds")} value="${esc(fieldVal("cfg", ["seeds"], "seeds"))}" placeholder="42, 1337">
+      <label>Timeout per image (s)</label><input type="text" class="short" ${bind("cfg", ["timeout"], "scalar")} value="${esc(showScalar(SU.cfg.timeout))}">
+      <label>Results folder</label><div><input type="text" ${bind("cfg", ["output_dir"])} value="${esc(SU.cfg.output_dir || "")}" placeholder="results"><div class="hint">Changes take effect after restarting <code>bench serve</code>.</div></div>
+    </div>
+    <h3>Defaults</h3>
+    <p class="hint" style="margin-top:0">Apply to all models unless the model or prompt says otherwise.</p>
+    ${kvTable("cfg", ["defaults"], SU.cfg.defaults || {})}</div>`;
+}
+
+// ---- Template Modal Functions ----
+function showTemplateModal(){
+  const tmpls = allTemplates();
+  const builtin = Object.keys(BUILTIN_TEMPLATES);
+  const custom = Object.keys(tmpls).filter(k => !builtin.includes(k));
+  const html = `
+    <h3>Create prompt from template</h3>
+    <p class="hint">Choose a template, enter an ID and create the prompt.</p>
+    <div class="su-grid" style="margin-top:8px">
+      <label>Template</label>
+      <select id="tmpl-select" style="width:100%">
+        <optgroup label="Built-in templates">
+          ${builtin.map(k => `<option value="${esc(k)}">${esc(tmpls[k].name)} (${esc(tmpls[k].category || "–")})</option>`).join("")}
+        </optgroup>
+        ${custom.length ? `<optgroup label="Custom templates">
+          ${custom.map(k => `<option value="${esc(k)}">${esc(tmpls[k].name)} (${esc(tmpls[k].category || "–")})</option>`).join("")}
+        </optgroup>` : ""}
+      </select>
+      <label>Prompt-ID</label>
+      <input type="text" id="tmpl-prompt-id" placeholder="e.g. my-portrait" style="width:100%">
+      <label>Category</label>
+      <input type="text" id="tmpl-category" list="su-cats" placeholder="optional" style="width:100%"><datalist id="su-cats">${[...new Set(SU.doc.prompts.map(x => x.category).filter(Boolean))].map(c => `<option>${esc(c)}</option>`).join("")}</datalist>
+    </div>
+    <div id="tmpl-preview" class="prev" style="margin-top:8px"></div>
+    <div class="row" style="margin-top:12px;justify-content:flex-end">
+      <button class="btn-p" onclick="createFromTemplate()">Create</button>
+      <button onclick="closeTmplModal()">Cancel</button>
+    </div>
+  `;
+  SU.tmplModal = html;
+  keepFocus(suRender);
+  // Update the preview on selection
+  setTimeout(() => {
+    const sel = $("#tmpl-select"), pid = $("#tmpl-prompt-id"), cat = $("#tmpl-category");
+    const update = () => { const t = tmpls[sel.value]; const p = promptFromTemplate(t, pid.value || ""); $("#tmpl-preview").innerHTML = suPreview(p); cat.value = t.category || ""; };
+    sel.onchange = update; pid.oninput = update; cat.oninput = () => {};
+    update();
+  }, 0);
+}
+
+function closeTmplModal(){
+  SU.tmplModal = null;
+  keepFocus(suRender);
+}
+
+function createFromTemplate(){
+  const sel = $("#tmpl-select"), pid = $("#tmpl-prompt-id"), cat = $("#tmpl-category");
+  const id = pid.value.trim();
+  if(!id){ suErr("Please enter a prompt ID"); return; }
+  if(!/^[\w.-]+$/.test(id) || SU.doc.prompts.some(x => x.id === id)){ suErr("Invalid ID or already taken"); return; }
+  const tmpl = allTemplates()[sel.value];
+  const newPrompt = promptFromTemplate(tmpl, id);
+  newPrompt.category = cat.value.trim() || tmpl.category || "";
+  SU.doc.prompts.push(newPrompt);
+  SU.prompt = id;
+  markDirty("prompts");
+  closeTmplModal();
+  suRender();
+}
+
+function saveCurrentAsTemplate(p){
+  if(!p){ suErr("No prompt selected"); return; }
+  const name = (prompt("Template name (e.g. My Portraits):") || "").trim();
+  if(!name){ return; }
+  const key = name.toLowerCase().replace(/[^\w]+/g, "-").replace(/^-|-$/g, "");
+  const tmpl = {
+    name, category: p.category || "",
+    prompt: p.prompt, negative: p.negative,
+    vars: p.vars || {}, vary: p.vary || "product",
+    width: p.width, height: p.height,
+    check: p.check || "",
+    params: p.params || {}, model_params: p.model_params || {}
+  };
+  const custom = loadTemplates();
+  custom[key] = tmpl;
+  saveTemplates(custom);
+  SU.info = `Template "${name}" saved.`;
+  keepFocus(suRender);
+}
+
+function showTemplateManager(){
+  const custom = loadTemplates();
+  const html = `
+    <h3>Manage templates</h3>
+    <p class="hint">Built-in templates cannot be deleted. Custom templates are stored in the browser.</p>
+    ${Object.entries(custom).length === 0 ? `<p class="hint">No custom templates yet.</p>` : `
+      <table class="kv" style="margin-top:8px">
+        ${Object.entries(custom).map(([k, t]) => `<tr>
+          <td class="k">${esc(t.name)} <span class="hint">(${esc(k)})</span></td>
+          <td>${esc(t.category || "–")}</td>
+          <td style="width:80px"><button class="x" data-act="del-tmpl" data-key="${esc(k)}" title="Delete">✕</button></td>
+        </tr>`).join("")}
+      </table>
+    `}
+    <div class="row" style="margin-top:12px;justify-content:flex-end">
+      <button onclick="closeTmplModal()">Close</button>
+    </div>
+  `;
+  SU.tmplModal = html;
+  keepFocus(suRender);
+  setTimeout(() => {
+    document.querySelectorAll("[data-act=del-tmpl]").forEach(b => {
+      b.onclick = () => {
+        if(confirm(`Delete template "${b.dataset.key}"?`)){
+          const custom = loadTemplates();
+          delete custom[b.dataset.key];
+          saveTemplates(custom);
+          SU.info = "Template deleted.";
+          showTemplateManager();
+        }
+      };
+    });
+  }, 0);
+}
+
+// Render hook for the modal in suRender
+const originalSuRender = suRender;
+suRender = function(){
+  originalSuRender();
+  if(SU.tmplModal){
+    const main = $("#setup .su-main") || $("#setup section.su-main");
+    if(main) main.innerHTML = SU.tmplModal;
+  }
+};
+
+// ---------------------------------------------------------------- Events
+function suWhich(root){ return root === "cfg" ? "config" : "prompts"; }
+function curPrompt(){ return SU.doc.prompts.find(x => x.id === SU.prompt); }
+function curModel(){ return SU.cfg.models[SU.model]; }
+function readBound(el){
+  const t = el.dataset.t, raw = el.type === "checkbox" ? el.checked : el.value;
+  if(t === "scalar") return parseScalar(raw);
+  if(t === "seeds"){ const xs = String(raw).split(/[,\s]+/).filter(Boolean).map(x => parseInt(x, 10)).filter(x => !isNaN(x)); return xs.length ? xs : undefined; }
+  if(t === "keep") return raw;
+  return raw === "" ? undefined : raw;
+}
+document.addEventListener("input", e => {
+  const el = e.target; if(!el.closest || !el.closest("#setup")) return;
+  if(el.dataset.b){
+    setAt(rootOf(el.dataset.root), JSON.parse(el.dataset.b), readBound(el));
+    markDirty(suWhich(el.dataset.root));
+    if(el.dataset.prev && $("#su-prev")) $("#su-prev").innerHTML = suPreview(curPrompt());
+    return;
+  }
+  if(el.dataset.varvals !== undefined){
+    const p = curPrompt(); p.vars[el.dataset.varvals] = textToDefn(el.value); markDirty("prompts");
+    $("#su-prev").innerHTML = suPreview(p); return;
+  }
+  if(el.dataset.setvals !== undefined){ SU.doc.vars[el.dataset.setvals] = textToDefn(el.value); markDirty("prompts"); return; }
+  if(el.id === "su-vdq" && SU.varDlg){ SU.varDlg.q = el.value; const pos = el.selectionStart; suRender(); const n = $("#su-vdq"); n.focus(); n.setSelectionRange(pos, pos); return; }
+  if(el.id === "su-nodeq"){ SU.nodeQ = el.value; const pos = el.selectionStart; suRender(); const n = $("#su-nodeq"); n.focus(); n.setSelectionRange(pos, pos); return; }
+  if(el.id === "su-pq"){ SU.pq = el.value; const pos = el.selectionStart; suRender(); const n = $("#su-pq"); n.focus(); n.setSelectionRange(pos, pos); }
+}, true);
+
+const renameKey = (obj, from, to) => Object.fromEntries(Object.entries(obj).map(([k, v]) => [k === from ? to : k, v]));
+document.addEventListener("change", async e => {
+  const el = e.target; if(!el.closest || !el.closest("#setup")) return;
+  if(el.dataset.b && el.dataset.r){ keepFocus(suRender); return; }
+  if(el.dataset.vdFile !== undefined && SU.varDlg){ const f = el.dataset.vdFile, d = SU.varDlg;
+    d.sel = el.checked ? [...new Set([...d.sel, f])] : d.sel.filter(x => x !== f); keepFocus(suRender); return; }
+  if(el.dataset.vdKey !== undefined && SU.varDlg){ SU.varDlg.key = el.value; SU.varDlg.sel = []; keepFocus(suRender); return; }
+  const m = curModel(), p = curPrompt();
+  if(el.dataset.wf !== undefined){
+    const mode = el.dataset.wf; let file = el.value;
+    if(file === "__upload"){ file = await uploadWorkflow(); if(!file){ keepFocus(suRender); return; } }
+    const sp = specOf(m, mode) || {file: "", map: {}};
+    sp.file = file; setSpec(m, mode, sp); SU.mode = mode; markDirty("config"); keepFocus(suRender);
+    if(file){ await suEnsureAnalysis(); const an = SU.analysis[file];
+      if(an && !an.error && !(an.placeholders || []).length && applySuggestions(m, mode, true)){ markDirty("config"); SU.info = "Mapping suggestions applied – please check briefly."; keepFocus(suRender); } }
+    return;
+  }
+  if(el.dataset.map !== undefined){
+    const t = el.dataset.map; let key = el.value;
+    if(key === "__new"){ key = (prompt("Value name (letters, digits, _):") || "").trim();
+      if(!/^\w+$/.test(key)){ keepFocus(suRender); return; } }
+    const sp = specOf(m, SU.mode);
+    for(const k of Object.keys(sp.map)){ const l = asList(sp.map[k]).filter(x => x !== t); if(l.length) sp.map[k] = l; else delete sp.map[k]; }
+    if(key) sp.map[key] = [...asList(sp.map[key]), t];
+    setSpec(m, SU.mode, sp); markDirty("config"); keepFocus(suRender); return;
+  }
+  if(el.dataset.actChange === "rename-prompt"){
+    const nid = el.value.trim();
+    if(!/^[\w.-]+$/.test(nid)){ suErr("ID: letters, digits, - _ . only"); el.value = p.id; return; }
+    if(nid === p.id) return;
+    if(SU.doc.prompts.some(x => x.id === nid)){ suErr(`ID ${nid} already exists`); el.value = p.id; return; }
+    p.id = nid; SU.prompt = nid; markDirty("prompts"); keepFocus(suRender); return;
+  }
+  if(el.dataset.actChange === "neg-mode"){ if(el.value === "own") p.negative = p.negative ?? ""; else delete p.negative; markDirty("prompts"); keepFocus(suRender); return; }
+  if(el.dataset.actChange === "prompt-image"){
+    let f = el.value; if(f === "__upload"){ f = await uploadInput(); if(!f){ keepFocus(suRender); return; } }
+    if(f) p.image = f; else delete p.image; markDirty("prompts"); keepFocus(suRender); return;
+  }
+  if(el.dataset.varname !== undefined){
+    const from = el.dataset.varname, to = el.value.trim();
+    if(!p.vars || !(from in p.vars) || to === from) return;
+    if(!/^\w+$/.test(to) || (to !== from && to in p.vars)){ suErr("Variable name: letters, digits, _ only – and unique"); el.value = from; return; }
+    p.vars = renameKey(p.vars, from, to); markDirty("prompts"); keepFocus(suRender); return;
+  }
+  if(el.dataset.varsrc !== undefined){ p.vars[el.dataset.varsrc] = el.value || []; markDirty("prompts"); keepFocus(suRender); return; }
+  if(el.dataset.setname !== undefined){
+    const from = el.dataset.setname, to = el.value.trim();
+    if(!(from in SU.doc.vars) || to === from) return;
+    if(!/^\w+$/.test(to) || (to !== from && to in SU.doc.vars)){ suErr("Set name: letters, digits, _ only – and unique"); el.value = from; return; }
+    SU.doc.vars = renameKey(SU.doc.vars, from, to);
+    SU.doc.prompts.forEach(x => Object.keys(x.vars || {}).forEach(k => { if(x.vars[k] === "$" + from) x.vars[k] = "$" + to; }));
+    markDirty("prompts"); keepFocus(suRender);
+  }
+}, true);
+
+document.addEventListener("click", async e => {
+  const el = e.target.closest("#setup [data-sec], #setup [data-act], #setup [data-model], #setup [data-prompt]"); if(!el) return;
+  if(el.dataset.sec){ SU.sec = el.dataset.sec; S.suSec = SU.sec; save(); SU.error = ""; suRender(); return; }
+  if(el.dataset.model){ SU.model = el.dataset.model; SU.mode = "txt2img"; suRender(); return; }
+  if(el.dataset.prompt){ SU.prompt = el.dataset.prompt; suRender(); return; }
+  const act = el.dataset.act, m = curModel(), p = curPrompt();
+  switch(act){
+    case "save": return suSave();
+    case "check": return suRunCheck(false);
+    case "discard": if(confirm("Discard all unsaved changes?")) await suLoad(); return;
+    case "add-model": {
+      const id = (prompt("Model ID (e.g. flux-dev):") || "").trim(); if(!id) return;
+      if(!/^[\w.-]+$/.test(id) || SU.cfg.models[id]) return suErr("Invalid ID or already taken");
+      SU.cfg.models[id] = {label: id, params: {}}; SU.model = id; SU.mode = "txt2img"; markDirty("config"); return suRender();
+    }
+    case "del-model": if(confirm(`Delete model ${SU.model} from the config? Generated images stay in the gallery.`)){ delete SU.cfg.models[SU.model]; SU.model = Object.keys(SU.cfg.models)[0] || null; markDirty("config"); suRender(); } return;
+    case "toggle-enabled": if(el.checked) delete m.enabled; else m.enabled = false; markDirty("config"); return suRender();
+    case "co-refresh": await loadComfyOptions(true); toast(CO.data.ok ? "Lists reloaded from ComfyUI" : CO.data.error); return suRender();
+    case "lora-add": {
+      const n = (prompt("Short name of the LoRA (e.g. style, detail):") || "").trim(); if(!n) return;
+      if(!/^\w+$/.test(n)) return suErr("Name: letters, digits, _ only");
+      m.loras = m.loras || {};
+      if(m.loras[n]) return suErr(`LoRA ${n} already exists`);
+      m.loras[n] = {name: "", default_strength: 0.8}; markDirty("config"); return suRender();
+    }
+    case "lora-del": delete m.loras[el.dataset.lora]; if(!Object.keys(m.loras).length) delete m.loras; markDirty("config"); return suRender();
+    case "var-files": {
+      const keys = Object.keys((CO.data && CO.data.ok && CO.data.models[SU.model]) || {});
+      const pref = ["checkpoint", "ckpt_name", "unet", "unet_name", "model"].find(k => keys.includes(k));
+      SU.varDlg = {model: SU.model, key: pref || keys[0], sel: [], q: ""}; return suRender();
+    }
+    case "vd-close": SU.varDlg = null; return suRender();
+    case "vd-all": case "vd-none": { const d = SU.varDlg, q = d.q.trim().toLowerCase();
+      const shown = (comfyOpts(d.model, d.key) || []).filter(o => !q || o.toLowerCase().includes(q));
+      d.sel = act === "vd-all" ? [...new Set([...d.sel, ...shown])] : d.sel.filter(x => !shown.includes(x)); return suRender(); }
+    case "vd-create": {
+      const d = SU.varDlg, stem = f => f.split(/[\\/]/).pop().replace(/\.[^.]+$/, "");
+      const made = [];
+      for(const f of d.sel){
+        const base = stem(f).toLowerCase().replace(/[^a-z0-9.]+/g, "-").replace(/^[-.]+|[-.]+$/g, "") || "model";
+        let nid = base, n = 2; while(SU.cfg.models[nid]) nid = `${base}-${n++}`;
+        const c = clone(m); c.label = stem(f); c.params = {...(c.params || {}), [d.key]: f};
+        SU.cfg.models[nid] = c; made.push(nid);
+      }
+      SU.varDlg = null; markDirty("config"); toast(`${made.length} model${made.length===1?"":"s"} created – save to keep`);
+      return suRender();
+    }
+    case "add-mode": {
+      const mode = (prompt("Mode (e.g. img2img, inpaint):", "img2img") || "").trim(); if(!mode) return;
+      if(!/^\w+$/.test(mode)) return suErr("Mode: letters, digits, _ only");
+      if(!specOf(m, mode)){ if(mode === "txt2img") m.workflow = {file: "", map: {}}; else { m.workflows = m.workflows || {}; m.workflows[mode] = {file: "", map: {}}; } }
+      SU.mode = mode; markDirty("config"); return suRender();
+    }
+    case "del-mode": if(confirm(`Remove the workflow for ${el.dataset.mode}?`)){ setSpec(m, el.dataset.mode, null); markDirty("config"); suRender(); } return;
+    case "map-mode": SU.mode = el.dataset.mode; suRender(); return;
+    case "apply-sugg": applySuggestions(m, SU.mode, false); markDirty("config"); SU.info = "Suggestions applied."; return suRender();
+    case "clear-map": if(confirm("Clear the mapping for this mode?")){ const sp = specOf(m, SU.mode); sp.map = {}; setSpec(m, SU.mode, sp); markDirty("config"); suRender(); } return;
+    case "fill-missing": { const sp = specOf(m, SU.mode); fillFromWorkflow(m, SU.mode, Object.keys(sp.map).filter(k => !hasValue(m, k))); markDirty("config"); return suRender(); }
+    case "all-nodes": SU.allNodes = el.checked; return suRender();
+    case "kv-add": {
+      const k = (prompt("Name (e.g. steps, cfg, sampler):") || "").trim(); if(!k) return;
+      if(!/^\w+$/.test(k)) return suErr("Name: letters, digits, _ only");
+      const path = JSON.parse(el.dataset.path), root = rootOf(el.dataset.root);
+      if(getAt(root, [...path, k]) === undefined) setAt(root, [...path, k], "");
+      markDirty(suWhich(el.dataset.root)); return suRender();
+    }
+    case "kv-del": { const path = JSON.parse(el.dataset.path); setAt(rootOf(el.dataset.root), path, undefined);
+      const parent = getAt(rootOf(el.dataset.root), path.slice(0, -1));
+      if(parent && !Object.keys(parent).length) setAt(rootOf(el.dataset.root), path.slice(0, -1), undefined);
+      markDirty(suWhich(el.dataset.root)); return suRender(); }
+    case "add-prompt": {
+      const id = (prompt("ID of the new prompt (e.g. hands-piano):") || "").trim(); if(!id) return;
+      if(!/^[\w.-]+$/.test(id) || SU.doc.prompts.some(x => x.id === id)) return suErr("Invalid ID or already taken");
+      SU.doc.prompts.push({id, category: p ? p.category : "", prompt: ""}); SU.prompt = id; markDirty("prompts"); return suRender();
+    }
+    case "add-prompt-tmpl": return showTemplateModal();
+    case "save-as-tmpl": return saveCurrentAsTemplate(p);
+    case "manage-tmpl": return showTemplateManager();
+    case "dup-prompt": {
+      let id = p.id + "-copy", n = 2; while(SU.doc.prompts.some(x => x.id === id)) id = `${p.id}-copy${n++}`;
+      const c = clone(p); c.id = id; SU.doc.prompts.splice(SU.doc.prompts.indexOf(p) + 1, 0, c); SU.prompt = id; markDirty("prompts"); return suRender();
+    }
+    case "del-prompt": if(confirm(`Delete prompt ${p.id}? Generated images stay in the gallery.`)){ const i = SU.doc.prompts.indexOf(p); SU.doc.prompts.splice(i, 1); SU.prompt = (SU.doc.prompts[i] || SU.doc.prompts[i-1] || {}).id; markDirty("prompts"); suRender(); } return;
+    case "add-var": { p.vars = p.vars || {}; let n = "var", k = 2; while(n in p.vars) n = "var" + k++; p.vars[n] = []; markDirty("prompts"); return suRender(); }
+    case "del-var": delete p.vars[el.dataset.var]; if(!Object.keys(p.vars).length){ delete p.vars; delete p.vary; } markDirty("prompts"); return suRender();
+    case "add-set": { let n = "set", k = 2; while(n in SU.doc.vars) n = "set" + k++; SU.doc.vars[n] = []; markDirty("prompts"); return suRender(); }
+    case "del-set": { const n = el.dataset.set; const users = SU.doc.prompts.filter(x => Object.values(x.vars || {}).includes("$" + n));
+      if(users.length) return suErr(`Set ${n} is still used by: ${users.map(x => x.id).join(", ")}`);
+      delete SU.doc.vars[n]; markDirty("prompts"); return suRender(); }
+  }
+});
+
+// =====================================================================
+// Generate: selection, plan, start/stop, progress
+// =====================================================================
+const RN = { status: null, plan: null, planErr: "", timer: null, planTimer: null, lastDone: -1, lastReload: 0, swq: {} };
+const rnPrompts = () => D.prompts.filter(p => p.id !== "_import");
+const rnBaseVariants = p => p.variants.filter(v => !v.extra).length || 1;
+// LoRAs of the currently selected models: union in config order, with the
+// models that do not define a LoRA recorded for the "skipped for …" hint.
+function rnLoraUnion(){
+  const sel = rnLoraModels(), out = [];
+  sel.forEach(m => Object.entries(m.loras || {}).forEach(([name, info]) => {
+    let e = out.find(x => x.name === name);
+    if(!e){ e = {name, info: info || {}}; out.push(e); }
+  }));
+  out.forEach(e => e.missing = sel.filter(m => !(m.loras || {})[e.name]).map(m => m.label));
+  return out;
+}
+const rnLoraModels = () => D.models.filter(m => S.rnModels.includes(m.id));
+function rnLoraSweepCount(m, mode){
+  const n = Object.keys(m.loras || {}).length;
+  if(!n) return 1;
+  if(mode === "singles") return n;
+  if(mode === "pairs") return n * (n - 1) / 2;
+  return Math.pow(2, n) - 1;
+}
+function rnInitSelection(){
+  if(!Array.isArray(S.rnModels)) S.rnModels = D.models.filter(m => m.enabled !== false).map(m => m.id);
+  if(!Array.isArray(S.rnPrompts)) S.rnPrompts = rnPrompts().map(p => p.id);
+  if(!Array.isArray(S.rnSweeps)) S.rnSweeps = [];
+  if(!["base", "combo", "sweep"].includes(S.rnLoraMode)) S.rnLoraMode = "base";
+  if(!Array.isArray(S.rnLoraSel)) S.rnLoraSel = [];
+  if(!S.rnLoraStr || typeof S.rnLoraStr !== "object") S.rnLoraStr = {};
+  if(!["singles", "pairs", "all"].includes(S.rnLoraSweep)) S.rnLoraSweep = "all";
+  // Remove orphaned entries (deleted models/prompts)
+  S.rnModels = S.rnModels.filter(id => D.models.some(m => m.id === id));
+  S.rnPrompts = S.rnPrompts.filter(id => D.prompts.some(p => p.id === id));
+}
+const rnActive = () => RN.status && ["running", "stopping"].includes(RN.status.state);
+function fmtDur(s){ s = Math.max(0, Math.round(s)); const h = Math.floor(s/3600), m = Math.floor(s%3600/60), x = s%60;
+  return h ? `${h} h ${m} min` : m ? `${m} min ${String(x).padStart(2,"0")} s` : `${x} s`; }
+
+// Image input handling
+async function rnGetMappedImageKeys(){
+  // Fetch mapped image keys from first selected model's img2img workflow
+  if(!S.rnModels.length) return [];
+  const mid = S.rnModels[0];
+  const m = D.models.find(m => m.id === mid);
+  if(!m || !m.modes.includes("img2img")) return [];
+  
+  // Get workflow file for img2img
+  let wfFile = null;
+  if(m.workflows && m.workflows.img2img){
+    wfFile = typeof m.workflows.img2img === "string" ? m.workflows.img2img : m.workflows.img2img.file;
+  }
+  if(!wfFile) return [];
+  
+  try {
+    const analysis = await api("POST", "api/workflow/analyze", {file: wfFile});
+    return Object.keys(analysis.suggest || {}).filter(k => IMAGE_KEY.test(k));
+  } catch(e){
+    return [];
+  }
+}
+
+async function rnGetImageFields(promptId){
+  const p = promptMap.get(promptId);
+  if(!p) return [];
+  const mappedKeys = await rnGetMappedImageKeys();
+  const fields = [];
+  for(const [k,v] of Object.entries(p)){
+    if(IMAGE_KEY.test(k) && typeof v === "string" && mappedKeys.includes(k)){
+      fields.push({key: k, value: v, label: k === "image" ? "Main image" : `Image ${k.slice(5) || "2"}`});
+    }
+  }
+  return fields;
+}
+
+async function rnRenderImageInputs(){
+  const selected = S.rnPrompts.filter(id => promptMap.has(id));
+  const allFields = [];
+  for(const pid of selected){
+    const fields = await rnGetImageFields(pid);
+    fields.forEach(f => allFields.push({prompt: pid, ...f}));
+  }
+  if(!allFields.length) return "";
+  
+  const genOptions = D.generations
+    .filter(g => g.status === "ok" && g.files && g.files.length)
+    .sort((a,b) => b._i - a._i)
+    .slice(0, 50)
+    .map(g => `<option value="gen:${esc(g.id)}">${esc(g.id.slice(0,8))} · ${esc(mLabel(g.model))} · ${esc(g.prompt).slice(0,30)}</option>`).join("");
+  
+  const inputOptions = (SU.data?.files?.inputs || []).map(f => `<option value="${esc(f)}">${esc(f)}</option>`).join("");
+  
+  return allFields.map((f, i) => `
+    <div class="rn-sec" style="border-left:3px solid var(--accent);padding-left:12px;margin-left:-3px" data-rn-img-wrap="${esc(f.prompt)}" data-rn-img-wrap-key="${esc(f.key)}">
+      <div class="rn-h">${esc(f.label)} for <b>${esc(f.prompt)}</b></div>
+      <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center">
+        <select data-rn-img="${esc(f.prompt)}" data-rn-img-key="${esc(f.key)}" style="flex:1;min-width:200px">
+          <option value="">– select –</option>
+          <option value="__upload">📤 Upload …</option>
+          ${inputOptions ? `<optgroup label="From inputs/">${inputOptions}</optgroup>` : ""}
+          ${genOptions ? `<optgroup label="Previous generations">${genOptions}</optgroup>` : ""}
+        </select>
+        <span class="hint" style="flex:1 1 100%;font-size:11px">${esc(f.value || "no default")}</span>
+      </div>
+      <div class="rn-img-preview" style="margin-top:8px;min-height:64px"></div>
+    </div>
+  `).join("");
+}
+
+function rnBindImageInputs(){
+  document.querySelectorAll("[data-rn-img]").forEach(sel => {
+    const prompt = sel.dataset.rnImg, key = sel.dataset.rnImgKey;
+    const stored = S.rnImages?.[prompt]?.[key];
+    if(stored) sel.value = stored;
+    sel.onchange = () => {
+      if(sel.value === "__upload"){ rnUploadImage(prompt, key, sel); return; }
+      S.rnImages = S.rnImages || {}; S.rnImages[prompt] = S.rnImages[prompt] || {};
+      S.rnImages[prompt][key] = sel.value || undefined;
+      if(!S.rnImages[prompt][key]) delete S.rnImages[prompt][key];
+      if(Object.keys(S.rnImages[prompt]).length === 0) delete S.rnImages[prompt];
+      save(); rnPlanSoon(); rnUpdateImagePreview(prompt, key);
+    };
+    rnUpdateImagePreview(prompt, key);
+  });
+}
+
+function rnUpdateImagePreview(prompt, key){
+  const wrap = document.querySelector(`[data-rn-img-wrap="${esc(prompt)}"][data-rn-img-wrap-key="${esc(key)}"]`);
+  if(!wrap) return;
+  const preview = wrap.querySelector(".rn-img-preview");
+  const sel = wrap.querySelector(`[data-rn-img="${esc(prompt)}"][data-rn-img-key="${esc(key)}"]`);
+  if(!preview || !sel) return;
+  
+  const val = sel.value;
+  if(!val){
+    preview.innerHTML = "";
+    return;
+  }
+  
+  let url = "";
+  if(val.startsWith("gen:")){
+    const gid = val.slice(4);
+    const gen = D.generations.find(g => g.id === gid);
+    if(gen?.files?.[0]) url = fileUrl(gen.files[0]);
+  } else {
+    url = "inputs/" + val;
+  }
+  
+  if(url){
+    preview.innerHTML = `<img src="${url}" alt="Preview" style="max-width:200px;max-height:200px;border-radius:6px;border:1px solid var(--line);background:var(--bg)">
+      <div class="hint" style="margin-top:4px;font-size:11px">${esc(val)}</div>`;
+  } else {
+    preview.innerHTML = `<span class="hint">No preview available</span>`;
+  }
+}
+
+async function rnUploadImage(prompt, key, sel){
+  const f = await pickFile("image/png,image/jpeg,image/webp");
+  if(!f){ sel.value = ""; return; }
+  const dataUrl = await new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(f); });
+  try {
+    const r = await api("POST", "api/upload", {kind: "input", name: f.name, data: dataUrl});
+    SU.data.files.inputs = [...new Set([...SU.data.files.inputs, r.path])].sort();
+    S.rnImages = S.rnImages || {}; S.rnImages[prompt] = S.rnImages[prompt] || {};
+    S.rnImages[prompt][key] = r.path;
+    save(); rnRender();
+  } catch(e){ toast(e.message); sel.value = ""; }
+}
+
+// Sweeps over choice fields: union of the ComfyUI options of the selected models
+function rnSweepOptions(name){
+  const out = []; name = (name || "").trim(); if(!name) return out;
+  rnLoraModels().forEach(m => (comfyOpts(m.id, name) || []).forEach(o => {
+    let e = out.find(x => x.o === o); if(!e) out.push(e = {o, models: []}); e.models.push(m.label); }));
+  return out;
+}
+const splitVals = s => String(s || "").split(",").map(x => x.trim()).filter(Boolean);
+function rnSweepPicker(sw, i, opts){
+  const sel = new Set(splitVals(sw.vals)), q = (RN.swq[i] || "").trim().toLowerCase();
+  const nModels = rnLoraModels().filter(m => comfyOpts(m.id, sw.name.trim())).length;
+  const items = opts.filter(e => !q || e.o.toLowerCase().includes(q)).map(e => {
+    const comma = e.o.includes(",");
+    return `<label class="rn-item" ${comma ? 'title="Contains a comma – cannot be swept"' : ""}><input type="checkbox" data-rn-swopt="${i}" data-o="${esc(e.o)}" ${sel.has(e.o)?"checked":""} ${comma?"disabled":""}>
+      <span>${esc(e.o)}${e.models.length < nModels ? `<small>${e.models.map(esc).join(", ")}</small>` : ""}</span></label>`; }).join("");
+  return `<div style="flex:1;min-width:220px"><div class="row"><input type="search" placeholder="Search …" data-rn-swq="${i}" value="${esc(RN.swq[i] || "")}" style="flex:1">
+      <button data-rn-act="sw-all" data-i="${i}">all</button><button data-rn-act="sw-none" data-i="${i}">none</button><span class="hint">${sel.size} selected</span></div>
+    <div class="rn-sw-list">${items || `<span class="hint">No matching options.</span>`}</div></div>`;
+}
+function rnBody(){
+  const sweep = {}, byModel = {};
+  S.rnSweeps.forEach(sw => { if(sw.name && sw.vals) sweep[sw.name.trim()] = sw.vals; });
+  // per model only the values its ComfyUI node accepts (empty → model is skipped for this sweep)
+  Object.entries(sweep).forEach(([name, vals]) => S.rnModels.forEach(mid => {
+    const o = comfyOpts(mid, name); if(!o) return;
+    (byModel[mid] = byModel[mid] || {})[name] = splitVals(vals).filter(v => o.includes(v)).join(",");
+  }));
+  const body = {models: S.rnModels, prompts: S.rnPrompts, sweep, force: !!S.rnForce, dry_run: !!S.rnDry, images: S.rnImages || {}};
+  if(Object.keys(byModel).length) body.sweep_by_model = byModel;
+  if(S.rnLoraMode === "combo"){
+    const names = rnLoraUnion().map(x => x.name).filter(n => S.rnLoraSel.includes(n));
+    if(names.length){
+      const parts = names.map(n => {
+        const st = String(S.rnLoraStr[n] ?? "").trim();
+        if(st && !Number.isFinite(Number(st))) throw new Error(`LoRA strength for "${n}" must be a number (e.g. 0.8)`);
+        return st ? `${n}:${st}` : n;
+      });
+      body.lora_combo = [parts.join(",")];
+    }
+  }
+  else if(S.rnLoraMode === "sweep") body.sweep_loras = S.rnLoraSweep || "all";
+  return body;
+}
+
+async function rnRender(){
+  rnInitSelection();
+  const selM = new Set(S.rnModels), selP = new Set(S.rnPrompts);
+  const models = D.models.map(m => `<label class="rn-item"><input type="checkbox" data-rn-model="${esc(m.id)}" ${selM.has(m.id)?"checked":""}>
+      <span>${esc(m.label)}<small>${esc(m.modes.join(", ") || "no workflow")}${m.enabled===false?" · inactive":""}</small></span></label>`).join("");
+  const cats = {};
+  rnPrompts().forEach(p => (cats[p.category || "uncategorized"] = cats[p.category || "uncategorized"] || []).push(p));
+  const prompts = Object.entries(cats).map(([c, ps]) => {
+    const n = ps.filter(p => selP.has(p.id)).length;
+    return `<div class="rn-cat"><label class="rn-item rn-cathead"><input type="checkbox" data-rn-cat="${esc(c)}" ${n===ps.length?"checked":""} ${n>0&&n<ps.length?'data-indet="1"':""}>
+      <b>${esc(c)}</b> <small>${n}/${ps.length}</small></label>
+      ${ps.map(p => { const v = rnBaseVariants(p);
+        return `<label class="rn-item rn-p"><input type="checkbox" data-rn-prompt="${esc(p.id)}" ${selP.has(p.id)?"checked":""}><span>${esc(p.id)}${v>1?` <small>×${v} variants</small>`:""}${p.mode!=="txt2img"?` <span class="tag">${esc(p.mode)}</span>`:""}</span></label>`; }).join("")}</div>`;
+  }).join("");
+  
+  // Image inputs for selected img2img prompts
+  const imgInputs = await rnRenderImageInputs();
+  
+  if(!CO.data && !CO.loading) loadComfyOptions().then(() => { if(S.view === "run") keepFocus(rnRender); });
+  const keys = [...new Set(D.models.filter(m => selM.has(m.id)).flatMap(m => m.keys || []))].sort();
+  const sweeps = S.rnSweeps.map((sw, i) => {
+    const lacking = sw.name ? D.models.filter(m => selM.has(m.id) && !(m.keys || []).includes(sw.name)).map(m => m.label) : [];
+    const opts = rnSweepOptions(sw.name);
+    const vals = opts.length ? rnSweepPicker(sw, i, opts)
+      : `<input type="text" placeholder="e.g. 3, 5, 7" data-rn-sw="${i}" data-f="vals" value="${esc(sw.vals)}" style="flex:1;min-width:140px">`;
+    return `<div class="row rn-sweep"><input type="text" list="rn-keys" placeholder="Value, e.g. cfg" data-rn-sw="${i}" data-f="name" value="${esc(sw.name)}" style="width:150px">
+      ${vals}
+      <button class="x" data-rn-act="del-sweep" data-i="${i}">✕</button>
+      ${lacking.length ? `<div class="hint" style="width:100%">skipped for: ${lacking.map(esc).join(", ")}</div>` : ""}</div>`;
+  }).join("");
+
+  // LoRAs (only when at least one selected model defines some)
+  const loraUnion = rnLoraUnion();
+  const loraSel = new Set(S.rnLoraSel);
+  let loraSection = "";
+  if(loraUnion.length){
+    const modes = [["base", "Base (no LoRA)"], ["combo", "One combination"], ["sweep", "Sweep"]];
+    const radios = modes.map(([v, l]) => `<label class="rn-item"><input type="radio" name="rn-lora-mode" data-rn-lora-mode="${v}" ${S.rnLoraMode===v?"checked":""}> <span>${l}</span></label>`).join("");
+    let body = "";
+    if(S.rnLoraMode === "combo"){
+      body = loraUnion.map(x => {
+        const on = loraSel.has(x.name), dflt = x.info.default_strength;
+        return `<div class="row rn-lora">
+          <label class="rn-item" style="flex:1;min-width:170px"><input type="checkbox" data-rn-lora="${esc(x.name)}" ${on?"checked":""}>
+            <span>${esc(x.name)}<small>${x.info.trigger?`trigger: “${esc(x.info.trigger)}”`:"no trigger word"}${dflt!=null?` · default ${esc(dflt)}`:""}</small></span></label>
+          <input type="text" inputmode="decimal" data-rn-lora-str="${esc(x.name)}" value="${esc(S.rnLoraStr[x.name] ?? "")}" placeholder="strength${dflt!=null?` (${esc(dflt)})`:""}" ${on?"":"disabled"} style="width:140px">
+          ${x.missing.length ? `<div class="hint">skipped for: ${x.missing.map(esc).join(", ")}</div>` : ""}</div>`;
+      }).join("");
+      const n = loraUnion.filter(x => loraSel.has(x.name)).length;
+      body += n ? "" : `<div class="hint">Nothing checked – runs without LoRA.</div>`;
+    }
+    else if(S.rnLoraMode === "sweep"){
+      const opts = [["singles", "every LoRA alone"], ["pairs", "every pair"], ["all", "every combination"]]
+        .map(([v, l]) => `<option value="${v}" ${S.rnLoraSweep===v?"selected":""}>${l}</option>`).join("");
+      const counts = rnLoraModels().map(m => {
+        const n = Object.keys(m.loras || {}).length;
+        return n ? `${m.label}: ${rnLoraSweepCount(m, S.rnLoraSweep)} combination${rnLoraSweepCount(m, S.rnLoraSweep)===1?"":"s"}`
+                 : `${m.label}: base only (no LoRAs)`;
+      }).join(" · ");
+      body = `<div class="row rn-lora"><label class="rn-item"><span>Combine</span></label>
+          <select data-rn-lora-sweep>${opts}</select></div>
+        <div class="hint">${esc(counts)}</div>`;
+    }
+    loraSection = `<div class="rn-sec"><div class="rn-h">LoRAs <span class="hint">injected into the workflow · optional</span></div>
+      <div class="rn-lora-modes">${radios}</div>${body}</div>`;
+  }
+  $("#run").innerHTML = `<div class="rn">
+    <div class="rn-card"><h2>What should be generated?</h2>
+      <div class="rn-sec"><div class="rn-h">Models <span><button data-rn-act="m-all">all</button><button data-rn-act="m-none">none</button></span></div>${models || `<p class="hint">No models yet – create them under Setup.</p>`}</div>
+      <div class="rn-sec"><div class="rn-h">Prompts <span><button data-rn-act="p-all">all</button><button data-rn-act="p-none">none</button></span></div><div class="rn-plist">${prompts}</div></div>
+      ${imgInputs}
+      <div class="rn-sec"><div class="rn-h">Sweeps <span class="hint">extra axis for all selected prompts</span></div>
+        ${sweeps}<datalist id="rn-keys">${keys.map(k => `<option>${esc(k)}</option>`).join("")}</datalist>
+        <button data-rn-act="add-sweep">＋ Sweep</button></div>
+      ${loraSection}
+      <div class="rn-sec"><label class="rn-item"><input type="checkbox" data-rn-opt="force" ${S.rnForce?"checked":""}> <span>Regenerate existing images anyway<small>creates additional versions</small></span></label>
+        <label class="rn-item"><input type="checkbox" data-rn-opt="dry" ${S.rnDry?"checked":""}> <span>Dry run without ComfyUI<small>only fills the workflows (results/_dryrun)</small></span></label></div>
+      <div class="rn-plan" id="rn-plan"></div>
+      <button class="btn-p rn-start" data-rn-act="start" id="rn-start">Start generating</button>
+    </div>
+    <div class="rn-card" id="rn-status"></div></div>`;
+  document.querySelectorAll("[data-indet]").forEach(el => el.indeterminate = true);
+  rnPlanRender(); rnStatusRender(); rnPlanSoon();
+  rnBindImageInputs();
+}
+function rnPlanSoon(){
+  clearTimeout(RN.planTimer);
+  RN.planTimer = setTimeout(async () => {
+    if(!S.rnModels.length || !S.rnPrompts.length){ RN.plan = null; RN.planErr = ""; return rnPlanRender(); }
+    try { RN.plan = await api("POST", "api/run/plan", rnBody()); RN.planErr = ""; }
+    catch(e){ RN.plan = null; RN.planErr = e.message; }
+    rnPlanRender();
+  }, 250);
+}
+function rnPlanRender(){
+  const el = $("#rn-plan"), btn = $("#rn-start"); if(!el) return;
+  const pl = RN.plan;
+  let html, can = false;
+  if(!S.rnModels.length || !S.rnPrompts.length) html = `<span class="hint">Select at least one model and one prompt.</span>`;
+  else if(RN.planErr) html = `<div class="warnline">${esc(RN.planErr)}</div>`;
+  else if(!pl) html = `<span class="hint">Calculating …</span>`;
+  else {
+    can = pl.new > 0;
+    const avg = (() => { const xs = D.generations.filter(g => g.status === "ok" && g.seconds && S.rnModels.includes(g.model)).map(g => g.seconds);
+      return xs.length ? xs.reduce((a,b)=>a+b,0)/xs.length : null; })();
+    html = `<b>${pl.new} new image${pl.new===1?"":"s"}</b> · ${pl.total} jobs total${pl.existing ? `, ${pl.existing} already exist` : ""}${pl.idle ? `, ${pl.idle} skipped because of sweep` : ""}
+      ${avg && pl.new && !S.rnDry ? `<div class="hint">estimated about ${fmtDur(avg * pl.new)} (Ø ${avg.toFixed(1)} s per image so far)</div>` : ""}
+      ${pl.warnings.map(w => `<div class="hint">⚠ ${esc(w)}</div>`).join("")}
+      ${pl.errors.length ? `<div class="warnline">${pl.failed} job${pl.failed===1?"":"s"} cannot be filled:<br>${pl.errors.slice(0,5).map(esc).join("<br>")}</div>` : ""}
+      ${pl.total && !pl.new && !pl.failed ? `<div class="hint">Everything already generated. Tick "Regenerate existing images anyway" for new versions.</div>` : ""}`;
+  }
+  el.innerHTML = html;
+  if(btn){ btn.disabled = !can || rnActive(); btn.textContent = rnActive() ? "Running …" : S.rnDry ? "Start dry run" : "Start generating"; }
+}
+function rnStatusRender(){
+  const el = $("#rn-status"); if(!el) return;
+  const st = RN.status || {state: "idle"};
+  const labels = {idle: "Ready", running: "Running", stopping: "Stopping …", done: "Done", stopped: "Stopped", error: "Error"};
+  const finished = (st.done||0) + (st.skipped||0) + (st.failed||0) + (st.idle||0);
+  const pct = st.total ? Math.round(100 * finished / st.total) : 0;
+  const active = rnActive();
+  el.innerHTML = `<h2>Status <span class="rn-badge rn-${esc(st.state)}">${labels[st.state] || esc(st.state)}${st.dry_run?" · Dry run":""}</span></h2>
+    ${st.state === "idle" ? `<p class="hint">No run yet since the gallery started. Runs from the terminal (<code>bench run</code>) do not show up here, but their images do in the gallery.</p>` : `
+    <div class="rn-bar"><div style="width:${pct}%"></div></div>
+    <div class="rn-nums"><span><b>${st.done||0}</b> ${st.dry_run?"filled":"generated"}</span><span><b>${st.skipped||0}</b> skipped</span><span class="${st.failed?"rn-errn":""}"><b>${st.failed||0}</b> errors</span><span>${finished}/${st.total||0}</span>
+      ${active && st.eta != null ? `<span>about ${fmtDur(st.eta)} left</span>` : ""}</div>
+    ${st.current ? `<div class="rn-cur"><span class="rn-spin"></span>${esc(st.current)}</div>` : ""}
+    ${st.msg && st.state === "error" ? `<div class="su-msg err">${esc(st.msg)}</div>` : ""}
+    ${active ? `<div class="row" style="margin:10px 0"><button data-rn-act="stop">Stop after the current image</button><button data-rn-act="kill" class="x" style="font-size:13px">Abort now</button></div>` : ""}
+    ${(st.recent||[]).length ? `<div class="rn-h" style="margin-top:12px">Latest images</div><div class="rn-thumbs">${st.recent.map(r =>
+      `<img src="${fileUrl(r.file)}" data-rn-img="${esc(r.id)}" title="${esc(mLabel(r.model))} · ${esc(r.prompt)}${Object.keys(r.variant||{}).length?" · "+esc(Object.entries(r.variant).map(([k,v])=>k+": "+v).join(", ")):""} · seed ${r.seed}" alt="">`).join("")}</div>` : ""}
+    <div class="rn-h" style="margin-top:12px">Log <span class="hint">${esc((st.started||"").replace("T"," "))}${st.finished ? " – " + esc(st.finished.slice(11)) : ""}</span></div>
+    <div class="rn-log">${(st.log||[]).slice().reverse().map(l => `<div class="l-${esc(l.level)}"><span>${esc(l.t)}</span> ${esc(l.msg)}</div>`).join("")}</div>`}`;
+  const nav = $("#nav-run");
+  if(nav) nav.textContent = active ? `Generate · ${finished}/${st.total||0}` : "Generate";
+  rnPlanRender();
+}
+async function rnPoll(){
+  clearTimeout(RN.timer);
+  try { RN.status = await api("GET", "api/run/status"); } catch(e){ return; }
+  const st = RN.status;
+  if(S.view === "run") rnStatusRender();
+  else { const nav = $("#nav-run"); if(nav){ const f = (st.done||0)+(st.skipped||0)+(st.failed||0)+(st.idle||0);
+    nav.textContent = rnActive() ? `Generate · ${f}/${st.total||0}` : "Generate"; } }
+  // Reload gallery data when new images arrive (throttled) or at the end of a run
+  const doneNow = st.done || 0;
+  if(doneNow !== RN.lastDone && !st.dry_run && (Date.now() - RN.lastReload > 5000 || !rnActive())){
+    RN.lastDone = doneNow; RN.lastReload = Date.now();
+    await reloadGalleryData();
+    if(S.view === "grid" || S.view === "gallery") render();
+    if(!rnActive() && S.view === "run") rnPlanSoon();
+  }
+  if(rnActive()) RN.timer = setTimeout(rnPoll, 1500);
+}
+
+document.addEventListener("change", e => {
+  const el = e.target; if(!el.closest || !el.closest("#run")) return;
+  if(el.dataset.rnModel){ const id = el.dataset.rnModel; S.rnModels = el.checked ? [...new Set([...S.rnModels, id])] : S.rnModels.filter(x => x !== id); }
+  else if(el.dataset.rnPrompt){ const id = el.dataset.rnPrompt; S.rnPrompts = el.checked ? [...new Set([...S.rnPrompts, id])] : S.rnPrompts.filter(x => x !== id); }
+  else if(el.dataset.rnCat){ const ids = rnPrompts().filter(p => (p.category || "uncategorized") === el.dataset.rnCat).map(p => p.id);
+    S.rnPrompts = el.checked ? [...new Set([...S.rnPrompts, ...ids])] : S.rnPrompts.filter(x => !ids.includes(x)); }
+  else if(el.dataset.rnOpt === "force") S.rnForce = el.checked;
+  else if(el.dataset.rnOpt === "dry") S.rnDry = el.checked;
+  else if(el.dataset.rnLoraMode) S.rnLoraMode = el.dataset.rnLoraMode;
+  else if(el.dataset.rnLora !== undefined){ const n = el.dataset.rnLora;
+    S.rnLoraSel = el.checked ? [...new Set([...S.rnLoraSel, n])] : S.rnLoraSel.filter(x => x !== n); }
+  else if(el.dataset.rnLoraSweep !== undefined) S.rnLoraSweep = el.value;
+  else if(el.dataset.rnSw !== undefined){ S.rnSweeps[+el.dataset.rnSw][el.dataset.f] = el.value; save(); return keepFocus(rnRender); }
+  else if(el.dataset.rnSwopt !== undefined){ const sw = S.rnSweeps[+el.dataset.rnSwopt], o = el.dataset.o;
+    const vals = splitVals(sw.vals).filter(x => x !== o); if(el.checked) vals.push(o); sw.vals = vals.join(", "); }
+  else return;
+  save(); keepFocus(rnRender);
+}, true);
+document.addEventListener("input", e => {
+  const el = e.target; if(!el.closest || !el.closest("#run")) return;
+  if(el.dataset.rnLoraStr !== undefined){ S.rnLoraStr[el.dataset.rnLoraStr] = el.value; save(); rnPlanSoon(); return; }
+  if(el.dataset.rnSwq !== undefined){ RN.swq[el.dataset.rnSwq] = el.value; const q = el.value.trim().toLowerCase();
+    el.closest(".rn-sweep").querySelectorAll("[data-rn-swopt]").forEach(c =>
+      c.closest("label").style.display = !q || c.dataset.o.toLowerCase().includes(q) ? "" : "none");
+    return; }
+  if(el.dataset.rnSw === undefined) return;
+  S.rnSweeps[+el.dataset.rnSw][el.dataset.f] = el.value; save(); rnPlanSoon();
+}, true);
+document.addEventListener("click", async e => {
+  const img = e.target.closest("[data-rn-img]");
+  if(img){ const id = img.dataset.rnImg; if(!byId.has(id)) await reloadGalleryData();
+    if(byId.has(id)) openLb(id, (RN.status.recent||[]).map(r => r.id).filter(x => byId.has(x))); return; }
+  const el = e.target.closest("[data-rn-act]"); if(!el) return;
+  const act = el.dataset.rnAct;
+  if(act === "m-all") S.rnModels = D.models.map(m => m.id);
+  else if(act === "m-none") S.rnModels = [];
+  else if(act === "p-all") S.rnPrompts = rnPrompts().map(p => p.id);
+  else if(act === "p-none") S.rnPrompts = [];
+  else if(act === "add-sweep") S.rnSweeps.push({name: "", vals: ""});
+  else if(act === "del-sweep"){ S.rnSweeps.splice(+el.dataset.i, 1); RN.swq = {}; }
+  else if(act === "sw-all" || act === "sw-none"){ const i = +el.dataset.i, sw = S.rnSweeps[i], q = (RN.swq[i] || "").trim().toLowerCase();
+    const shown = rnSweepOptions(sw.name).map(e => e.o).filter(o => !o.includes(",") && (!q || o.toLowerCase().includes(q)));
+    const cur = splitVals(sw.vals);
+    sw.vals = (act === "sw-all" ? [...new Set([...cur, ...shown])] : cur.filter(x => !shown.includes(x))).join(", "); }
+  else if(act === "start"){
+    el.disabled = true;
+    try { RN.status = await api("POST", "api/run/start", rnBody()); RN.lastDone = -1; rnStatusRender(); rnPoll(); }
+    catch(err){ RN.planErr = err.message; rnPlanRender(); }
+    return;
+  }
+  else if(act === "stop" || act === "kill"){
+    if(act === "kill" && !confirm("Abort the current image in ComfyUI and end the run?")) return;
+    try { RN.status = await api("POST", "api/run/stop", {hard: act === "kill"}); rnStatusRender(); rnPoll(); } catch(err){ toast(err.message); }
+    return;
+  }
+  else return;
+  save(); rnRender();
+});
+
+load();
+</script>
+</body>
+</html>

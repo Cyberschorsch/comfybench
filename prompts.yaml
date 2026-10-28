@@ -1,0 +1,169 @@
+# ComfyBench – Prompt Set
+# Fields: id (required, unique), category, prompt (required), check (what to look for),
+# optional: negative, width, height, seeds, params (for all models),
+#           model_params: { <model-id>: { steps: 40 } }  (only for one model)
+#
+# Variables:  {name} in prompt/negative, values under vars:
+#   vars:
+#     emotion: [laughing, angry]                 # List: value = text
+#     emotion: { laughing: "laughing heartily" } # Label: text to insert
+#     emotion: $emotions                         # shared set from top
+#   vary: product (all combinations, default) | zip (lists pairwise)
+#         | single (first values = base, each variable varied individually)
+#   A variable named like a workflow placeholder
+#   (e.g., denoise, cfg, steps, image) directly controls the workflow.
+#
+# LoRA trigger words: If a model has LoRAs defined in the config,
+# variables {lora_<name>_trigger} are automatically set.
+# Example: LoRA "style" with trigger "in the style of" → {lora_style_trigger}
+# is only inserted in the prompt when this LoRA is active in the combo.
+#
+# img2img: image: <file in inputs/>  → uses the model's img2img workflow.
+#
+# Prompts are intentionally in English – most models follow it most reliably.
+# Good prompts from the gallery via "as YAML" can be copied and appended here.
+
+vars:
+  emotions:
+    neutral: "with a calm, neutral expression"
+    laughing: "laughing heartily, eyes crinkled"
+    angry: "furious, clenched jaw and furrowed brow"
+    crying: "crying, tears running down the cheeks"
+  ages: [18, 30, 75]
+
+prompts:
+
+  - id: portrait-emotion
+    category: Variables
+    prompt: >-
+      Close-up portrait photo of a {age}-year-old woman {emotion},
+      soft window light, 85mm lens, neutral grey background
+    vars:
+      emotion: $emotions
+      age: $ages
+    vary: single
+    check: Expression believable? Age visible without the person changing completely?
+
+  - id: character-outfit
+    category: Variables
+    prompt: >-
+      Full-body shot of a {subject} wearing {outfit}, standing on a city
+      sidewalk, golden hour, street photography
+    vars:
+      subject: [young man, elderly woman]
+      outfit:
+        suit: "a tailored navy suit"
+        raincoat: "a bright yellow raincoat and rubber boots"
+        armor: "medieval plate armor"
+    check: Clothing correct, proportions stable across variants
+
+  - id: img2img-sketch
+    category: img2img
+    prompt: >-
+      Photograph of a cozy stone cottage with a red tiled roof and chimney,
+      a large oak tree beside it, sunny summer afternoon
+    image: sketch-house.png
+    vars:
+      denoise: [0.5, 0.7, 0.9]
+    check: At what denoise does the image still follow the sketch? When does it become realistic?
+
+  - id: text-bakery
+    category: Text
+    prompt: >-
+      A weathered wooden sign hanging outside a small bakery that reads
+      "Frische Brötchen", early morning light, shallow depth of field, photo
+    check: Spelling exact, umlaut ö correct
+
+  - id: text-poster
+    category: Text
+    prompt: >-
+      Minimalist concert poster for a band called "NIGHT CIRCUITS", bold
+      condensed sans-serif title, the date "FRI 14.11." at the bottom,
+      neon magenta on deep black, subtle grain
+    width: 832
+    height: 1216
+    check: Both text lines correct, layout calm, portrait format used
+
+  - id: hands-guitar
+    category: Anatomy
+    prompt: >-
+      Close-up of two hands playing a classical guitar, fingers pressing the
+      strings on the fretboard, natural window light, photo
+    check: Finger count, joints, plausible grip
+
+  - id: portrait-fisherman
+    category: Photorealism
+    prompt: >-
+      Candid photo of an elderly fisherman mending a net on a harbor wall in
+      Northern Germany, overcast sky, 35mm film, visible skin texture
+    check: Skin texture without plastic look, believable light
+
+  - id: spatial-objects
+    category: Composition
+    prompt: >-
+      A red cube sitting on top of a blue sphere, to the left of a green
+      cylinder, on a white table, studio lighting, product render
+    check: All colors and positions exactly as described
+
+  - id: count-ducks
+    category: Composition
+    prompt: >-
+      Exactly five yellow rubber ducks lined up in a row on the edge of a
+      white bathtub, soft daylight
+    check: Exactly five ducks
+
+  - id: negation-room
+    category: Composition
+    prompt: >-
+      A cozy living room with a reading chair and a bookshelf, no people,
+      no television, warm evening light
+    check: No person, no TV in the image
+
+  - id: dense-scene
+    category: Prompt Adherence
+    prompt: >-
+      A busy night market in the rain: a street food stall with steaming
+      dumplings, a woman in a yellow raincoat holding a transparent umbrella,
+      a cyclist passing in motion blur, paper lanterns, reflections on wet
+      asphalt, a black cat sitting under the counter
+    width: 1344
+    height: 768
+    check: How many of the six elements are present? Landscape format used well?
+
+  - id: style-ukiyoe
+    category: Style
+    negative: ""        # Model negatives like "2d, cartoon" deliberately cleared here
+    prompt: >-
+      Ukiyo-e woodblock print of a modern tram crossing a stone bridge in the
+      rain, flat colors, visible paper texture
+    check: Style consistent, not just a filter over a photo
+
+  - id: style-watercolor
+    category: Style
+    negative: ""        # Model negatives like "2d, cartoon" deliberately cleared here
+    prompt: >-
+      Loose watercolor sketch of a mountain village at dusk, wet-on-wet
+      bleeding colors, white paper showing through
+    check: True watercolor feel, white areas stay free
+
+  - id: arch-library
+    category: Photorealism
+    prompt: >-
+      Wide-angle interior of a brutalist concrete library with a spiral
+      staircase, sunlight falling through square skylights, architectural
+      photography
+    check: Straight lines, clean perspective, stairs logical
+
+  - id: product-perfume
+    category: Photorealism
+    prompt: >-
+      Product photo of a faceted glass perfume bottle with amber liquid, on
+      wet black stone, softbox reflections, refraction and caustics
+    check: Glass, refraction, and reflections physically plausible
+
+  - id: animal-fox
+    category: Details
+    prompt: >-
+      A red fox standing in fresh snow, close-up, individual hairs of the fur
+      visible, snowflakes on its whiskers, telephoto lens, bokeh
+    check: Fur structure, eyes, focal plane
