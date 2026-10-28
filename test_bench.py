@@ -1,6 +1,10 @@
 """Unit tests for bench.py – run with: python3 -m unittest -v"""
+import json
 import os
+import shutil
+import tempfile
 import unittest
+from pathlib import Path
 
 os.environ.pop("COMFYBENCH_HOME", None)  # before importing bench: ROOT = repo dir
 
@@ -139,6 +143,200 @@ class T_load_template_guard(unittest.TestCase):
             bench.load_template("/etc/hostname")
         with self.assertRaises(BenchError):
             bench.load_template("../x.json")
+
+
+# ------------------------------------------------------------------ Civitai import
+
+CIVITAI_ITEM = {
+    "id": 12097475,
+    "url": "https://image.civitai.com/xG1nkq/936f0e8d/original=true/936f0e8d.jpeg",
+    "width": 1520, "height": 1952,
+    "meta": {
+        "Size": "896x1152", "seed": 3269595310, "steps": 25,
+        "sampler": "Euler a", "cfgScale": 7, "Schedule type": "Karras",
+        "prompt": "1girl, portrait, soft light", "negativePrompt": "lowres",
+        "Model": "ponyDiffusionV6XL", "Denoising strength": 0.6,
+    },
+}
+
+CIVITAI_COMFY_GRAPH = {"prompt": {
+    "3": {"class_type": "KSampler", "inputs": {"positive": ["6", 0], "negative": ["7", 0],
+                                               "seed": 777, "steps": 20, "cfg": 4.5,
+                                               "sampler_name": "euler", "scheduler": "normal"}},
+    "6": {"class_type": "CLIPTextEncode", "inputs": {"text": "comfy positive"}},
+    "7": {"class_type": "CLIPTextEncode", "inputs": {"text": "comfy negative"}},
+    "8": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": "modelX.safetensors"}},
+}}
+
+
+class T_parse_civitai_url(unittest.TestCase):
+    def test_image_url(self):
+        self.assertEqual(bench.parse_civitai_url("https://civitai.com/images/123"), ("imageId", "123"))
+
+    def test_post_url(self):
+        self.assertEqual(bench.parse_civitai_url("https://civitai.com/posts/456"), ("postId", "456"))
+
+    def test_no_scheme_query_and_www(self):
+        self.assertEqual(bench.parse_civitai_url("civitai.com/images/789?query=x#h"), ("imageId", "789"))
+        self.assertEqual(bench.parse_civitai_url("https://www.civitai.com/images/789"), ("imageId", "789"))
+
+    def test_rejects_other_sites(self):
+        for url in ("https://example.com/images/1", "https://image.civitai.com/x/abc.jpeg",
+                    "https://civitai.example.com/images/1"):
+            with self.assertRaises(BenchError, msg=url):
+                bench.parse_civitai_url(url)
+
+    def test_rejects_other_civitai_pages(self):
+        for url in ("https://civitai.com/models/123", "https://civitai.com/images/",
+                    "https://civitai.com/", "https://civitai.com/posts/abc"):
+            with self.assertRaises(BenchError, msg=url):
+                bench.parse_civitai_url(url)
+
+
+class T_civitai_extract(unittest.TestCase):
+    def test_flat_a1111_meta(self):
+        pos, neg, seed, model, params, size = bench.civitai_extract(CIVITAI_ITEM)
+        self.assertEqual(pos, "1girl, portrait, soft light")
+        self.assertEqual(neg, "lowres")
+        self.assertEqual(seed, 3269595310)
+        self.assertEqual(model, "ponyDiffusionV6XL")
+        self.assertEqual(params, {"steps": 25, "cfg": 7, "sampler": "Euler a",
+                                  "scheduler": "Karras", "denoise": 0.6})
+        self.assertEqual(size, (896, 1152))   # generation size wins over the file's 1520x1952
+
+    def test_comfy_graph_fills_gaps(self):
+        item = {"id": 1, "url": "https://image.civitai.com/a/original=true/b.png", "width": 1024, "height": 1024,
+                "meta": {"id": 1, "meta": {"seed": 1, "comfy": json.dumps(CIVITAI_COMFY_GRAPH)}}}
+        pos, neg, seed, model, params, size = bench.civitai_extract(item)
+        self.assertEqual(pos, "comfy positive")          # nested {id, meta} shape unwrapped
+        self.assertEqual(neg, "comfy negative")
+        self.assertEqual(seed, 777)
+        self.assertEqual(model, "modelX.safetensors")
+        self.assertEqual(params, {"steps": 20, "cfg": 4.5, "sampler": "euler", "scheduler": "normal"})
+        self.assertEqual(size, (1024, 1024))
+
+    def test_comfy_wins_over_flat(self):
+        item = {"id": 1, "url": "u", "width": 1, "height": 1,
+                "meta": {"prompt": "flat prompt", "steps": 30,
+                         "comfy": json.dumps(CIVITAI_COMFY_GRAPH)}}
+        pos, _, seed, _, params, _ = bench.civitai_extract(item)
+        self.assertEqual(pos, "comfy positive")     # the graph is ground truth
+        self.assertEqual(params["steps"], 20)       # …flat keys only fill its gaps
+        self.assertEqual(seed, 777)
+
+    def test_broken_comfy_json_falls_back(self):
+        item = {"id": 1, "url": "u", "width": 1, "height": 1,
+                "meta": {"prompt": "flat prompt", "comfy": "{not json"}}
+        pos, *_ = bench.civitai_extract(item)
+        self.assertEqual(pos, "flat prompt")
+
+    def test_no_prompt(self):
+        pos, neg, seed, model, params, size = bench.civitai_extract({"id": 1, "url": "u", "meta": {}})
+        self.assertIsNone(pos)
+        self.assertEqual(params, {})
+
+
+class T_import_civitai(unittest.TestCase):
+    """End-to-end: URL in → gallery record + prompts.yaml entry, against a temp data dir."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="cb-civitai-"))
+        (self.tmp / "config.yaml").write_text("models: {}\n", encoding="utf-8")
+        (self.tmp / "prompts.yaml").write_text("prompts: []\n", encoding="utf-8")
+        self.item = dict(CIVITAI_ITEM)   # per-test copy, so tests cannot leak into each other
+        self.image_downloads = 0
+        self._root, self._get = bench.ROOT, bench.requests.get
+        bench.ROOT = self.tmp
+        bench.requests.get = self.fake_get
+
+    def tearDown(self):
+        bench.ROOT, bench.requests.get = self._root, self._get
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def fake_get(self, url, params=None, timeout=None):
+        item = self.item
+        if url.startswith("https://image.civitai.com/"):
+            self.image_downloads += 1
+        class R:
+            status_code = 200
+            headers = {}
+            content = b"\x89PNG\r\n\x1a\nfakepng"
+
+            def json(self):
+                return {"items": [item]}
+        if url.startswith("https://civitai.com/api/v1/images"):
+            assert params == {"imageId": "12097475", "withMeta": "true"}, params
+        elif not url.startswith("https://image.civitai.com/"):
+            raise AssertionError(f"unexpected request: {url}")
+        return R()
+
+    def run_import(self, url="https://civitai.com/images/12097475"):
+        return bench.import_civitai(url, self.tmp / "config.yaml", self.tmp / "prompts.yaml")
+
+    def prompts_doc(self):
+        return bench.load_yaml(self.tmp / "prompts.yaml")
+
+    def test_first_import_adds_record_and_prompt(self):
+        res = self.run_import()
+        self.assertTrue(res["image_added"])
+        self.assertTrue(res["prompt_added"])
+        self.assertEqual(res["prompt_id"], "civitai-12097475")
+        gens = bench.Store(self.tmp / "results").generations()
+        self.assertEqual(len(gens), 1)
+        g = gens[0]
+        self.assertEqual(g["mode"], "import")
+        self.assertEqual(g["fingerprint"], "civitai:12097475")
+        self.assertEqual(g["seed"], 3269595310)
+        self.assertEqual(g["text"], "1girl, portrait, soft light")
+        self.assertEqual(g["negative"], "lowres")
+        self.assertEqual(g["values"]["width"], 896)
+        self.assertEqual(g["values"]["checkpoint"], "ponyDiffusionV6XL")
+        self.assertEqual(g["source"], "https://civitai.com/images/12097475")
+        self.assertTrue((self.tmp / "results" / g["files"][0]).is_file())   # files are relative to results/
+        p = self.prompts_doc()["prompts"]
+        self.assertEqual(len(p), 1)
+        self.assertEqual(p[0]["id"], "civitai-12097475")
+        self.assertEqual(p[0]["category"], "Civitai")
+        self.assertEqual(p[0]["prompt"], "1girl, portrait, soft light")
+        self.assertEqual(p[0]["negative"], "lowres")
+        self.assertEqual(p[0]["seeds"], [3269595310])
+        self.assertEqual(p[0]["width"], 896)
+        self.assertEqual(p[0]["params"], {"steps": 25, "cfg": 7, "sampler": "Euler a",
+                                          "scheduler": "Karras", "denoise": 0.6})
+
+    def test_second_import_is_a_noop(self):
+        self.run_import()
+        self.assertEqual(self.image_downloads, 1)
+        res = self.run_import()
+        self.assertFalse(res["image_added"])
+        self.assertFalse(res["prompt_added"])
+        self.assertEqual(self.image_downloads, 1)   # a duplicate never re-downloads the picture
+        self.assertEqual(len(bench.Store(self.tmp / "results").generations()), 1)
+        self.assertEqual(len(self.prompts_doc()["prompts"]), 1)
+
+    def test_existing_prompt_id_is_kept(self):
+        (self.tmp / "prompts.yaml").write_text(
+            "prompts:\n  - id: civitai-12097475\n    prompt: something else\n", encoding="utf-8")
+        res = self.run_import()
+        self.assertTrue(res["image_added"])
+        self.assertFalse(res["prompt_added"])
+        p = self.prompts_doc()["prompts"]
+        self.assertEqual(len(p), 1)
+        self.assertEqual(p[0]["prompt"], "something else")   # never overwritten
+
+    def test_image_without_prompt_raises(self):
+        self.item = dict(CIVITAI_ITEM, meta={"steps": 25})   # metadata shared, but no prompt text
+        with self.assertRaises(BenchError):
+            self.run_import()
+        self.assertEqual(bench.Store(self.tmp / "results").generations(), [])
+        self.assertEqual(self.prompts_doc(), {"prompts": []})
+
+    def test_rejected_url_never_touches_the_network(self):
+        def boom(url, params=None, timeout=None):
+            raise AssertionError("network called")
+        bench.requests.get = boom
+        with self.assertRaises(BenchError):
+            self.run_import("https://example.com/images/1")
 
 
 if __name__ == "__main__":
