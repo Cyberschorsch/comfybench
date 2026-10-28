@@ -20,6 +20,24 @@ Then in the UI: **Setup** to add models and prompts, **Generate** to run, **Comp
 
 The example config runs `sdxl-base` with the bundled workflows (ComfyUI needs `sd_xl_base_1.0.safetensors`). The disabled `moss-image` entry only illustrates the mapping syntax; its workflow file is not included.
 
+## Screenshots
+
+**Compare** – seeds side by side, with ratings and timings per image:
+
+![Compare: seeds side by side](assets/compare-seeds.png)
+
+**Compare** – variable axis (age), same prompt across values:
+
+![Compare: variable age](assets/compare-age.png)
+
+**Generate** – start a run, watch status, log and latest images:
+
+![Generate: running run](assets/generate-running.png)
+
+**Gallery** – every generated image, filterable and sortable:
+
+![Gallery: all results](assets/gallery.png)
+
 ### Docker
 
 ```bash
