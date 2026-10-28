@@ -1463,35 +1463,37 @@ def cmd_import(args):
 
 # ================================================================ civitai import
 
-CIVITAI_API = "https://civitai.com/api/v1"
+CIVITAI_SITES = ("civitai.com", "civitai.red")   # .red is the mature-content site: same ids, same API
 CIVITAI_PROMPT_PARAMS = ("steps", "cfg", "sampler", "scheduler", "denoise", "guidance")
 CIVITAI_EXTS = {".png", ".jpg", ".jpeg", ".webp"}
 
 
 def parse_civitai_url(url):
-    """A Civitai picture page URL → (API query parameter, id): ("imageId", …) or ("postId", …)."""
+    """A Civitai picture page URL → (site, API query parameter, id), e.g. ("civitai.com", "imageId", "123")."""
     u = str(url).strip()
     if not re.match(r"^https?://", u, re.I):
         u = "https://" + u
     p = urlparse(u)
     host = (p.hostname or "").lower()
-    if host.endswith("civitai.com") and host not in ("civitai.com", "www.civitai.com"):
-        raise BenchError("That is a direct file link – paste the picture's page URL, e.g. https://civitai.com/images/<id>")
-    if host not in ("civitai.com", "www.civitai.com"):
-        raise BenchError("Not a civitai.com URL")
+    site = host[4:] if host.startswith("www.") else host
+    if site not in CIVITAI_SITES:
+        if any(host.endswith("." + s) for s in CIVITAI_SITES):
+            raise BenchError("That is a direct file link – paste the picture's page URL, e.g. https://civitai.com/images/<id>")
+        raise BenchError("Not a civitai.com or civitai.red URL")
     m = re.match(r"^/(images|posts)/(\d+)/?$", p.path)
     if not m:
-        raise BenchError("Expected a picture URL like https://civitai.com/images/<id> or https://civitai.com/posts/<id>")
-    return ("imageId" if m.group(1) == "images" else "postId"), m.group(2)
+        raise BenchError(f"Expected a picture URL like https://{site}/images/<id> or https://{site}/posts/<id>")
+    return site, ("imageId" if m.group(1) == "images" else "postId"), m.group(2)
 
 
 def civitai_fetch(url, timeout=20):
     """The image record (with metadata) behind a Civitai picture URL."""
-    key, ident = parse_civitai_url(url)
+    site, key, ident = parse_civitai_url(url)
     for attempt in range(2):
         try:
-            r = requests.get(f"{CIVITAI_API}/images", params={key: ident, "withMeta": "true"},
-                             timeout=timeout)
+            # nsfw=X: without it mature pictures are filtered out – the user picked this one explicitly
+            r = requests.get(f"https://{site}/api/v1/images",
+                             params={key: ident, "withMeta": "true", "nsfw": "X"}, timeout=timeout)
         except requests.exceptions.RequestException as e:
             raise BenchError(f"Civitai request failed: {e}") from None
         if r.status_code == 429 and attempt == 0:   # respect Retry-After, then give up
@@ -1576,7 +1578,7 @@ def civitai_preview(url):
     item, (pos, neg, seed, model, params, (w, h)) = civitai_read(url)
     image_id = item.get("id")
     img = str(item.get("url") or "")
-    return {"url": f"https://civitai.com/images/{image_id}", "prompt_id": f"civitai-{image_id}",
+    return {"url": f"https://{parse_civitai_url(url)[0]}/images/{image_id}", "prompt_id": f"civitai-{image_id}",
             "prompt": pos, "negative": neg or "", "seed": seed, "model": model or "",
             "params": {k: params[k] for k in CIVITAI_PROMPT_PARAMS if k in params},
             "width": w, "height": h,
@@ -1595,7 +1597,7 @@ def import_civitai(url, config_path, prompts_path, prompt_id=None, category=None
     known = {g.get("fingerprint") for g in store.generations()}
     item, (pos, neg, seed, model, params, (w, h)) = civitai_read(url)
     image_id = item.get("id")
-    source = f"https://civitai.com/images/{image_id}"
+    source = f"https://{parse_civitai_url(url)[0]}/images/{image_id}"
     values = dict(params)
     if model:
         values["checkpoint"] = model
@@ -2122,7 +2124,7 @@ def main():
     im.set_defaults(func=cmd_import)
 
     iu = sub.add_parser("import-url", help="import Civitai picture(s): gallery image + prompts.yaml entry")
-    iu.add_argument("urls", nargs="+", help="picture page URL, e.g. https://civitai.com/images/123")
+    iu.add_argument("urls", nargs="+", help="picture page URL, e.g. https://civitai.com/images/123 or https://civitai.red/images/123")
     iu.set_defaults(func=cmd_import_url)
 
     ck = sub.add_parser("check", help="trial-fill all model workflows and report problems")

@@ -1,6 +1,7 @@
 """Unit tests for bench.py – run with: python3 -m unittest -v"""
 import json
 import os
+import re
 import shutil
 import tempfile
 import unittest
@@ -171,18 +172,23 @@ CIVITAI_COMFY_GRAPH = {"prompt": {
 
 class T_parse_civitai_url(unittest.TestCase):
     def test_image_url(self):
-        self.assertEqual(bench.parse_civitai_url("https://civitai.com/images/123"), ("imageId", "123"))
+        self.assertEqual(bench.parse_civitai_url("https://civitai.com/images/123"), ("civitai.com", "imageId", "123"))
 
     def test_post_url(self):
-        self.assertEqual(bench.parse_civitai_url("https://civitai.com/posts/456"), ("postId", "456"))
+        self.assertEqual(bench.parse_civitai_url("https://civitai.com/posts/456"), ("civitai.com", "postId", "456"))
 
     def test_no_scheme_query_and_www(self):
-        self.assertEqual(bench.parse_civitai_url("civitai.com/images/789?query=x#h"), ("imageId", "789"))
-        self.assertEqual(bench.parse_civitai_url("https://www.civitai.com/images/789"), ("imageId", "789"))
+        self.assertEqual(bench.parse_civitai_url("civitai.com/images/789?query=x#h"), ("civitai.com", "imageId", "789"))
+        self.assertEqual(bench.parse_civitai_url("https://www.civitai.com/images/789"), ("civitai.com", "imageId", "789"))
+
+    def test_civitai_red(self):
+        self.assertEqual(bench.parse_civitai_url("https://civitai.red/images/123"), ("civitai.red", "imageId", "123"))
+        self.assertEqual(bench.parse_civitai_url("www.civitai.red/posts/45"), ("civitai.red", "postId", "45"))
 
     def test_rejects_other_sites(self):
         for url in ("https://example.com/images/1", "https://image.civitai.com/x/abc.jpeg",
-                    "https://civitai.example.com/images/1"):
+                    "https://image.civitai.red/x/abc.jpeg", "https://civitai.example.com/images/1",
+                    "https://civitai.blue/images/1"):
             with self.assertRaises(BenchError, msg=url):
                 bench.parse_civitai_url(url)
 
@@ -245,6 +251,7 @@ class T_import_civitai(unittest.TestCase):
         (self.tmp / "prompts.yaml").write_text("prompts: []\n", encoding="utf-8")
         self.item = dict(CIVITAI_ITEM)   # per-test copy, so tests cannot leak into each other
         self.image_downloads = 0
+        self.api_urls = []
         self._root, self._get = bench.ROOT, bench.requests.get
         bench.ROOT = self.tmp
         bench.requests.get = self.fake_get
@@ -264,8 +271,9 @@ class T_import_civitai(unittest.TestCase):
 
             def json(self):
                 return {"items": [item]}
-        if url.startswith("https://civitai.com/api/v1/images"):
-            assert params == {"imageId": "12097475", "withMeta": "true"}, params
+        if re.match(r"^https://civitai\.(com|red)/api/v1/images$", url):
+            self.api_urls.append(url)
+            assert params == {"imageId": "12097475", "withMeta": "true", "nsfw": "X"}, params
         elif not url.startswith("https://image.civitai.com/"):
             raise AssertionError(f"unexpected request: {url}")
         return R()
@@ -275,6 +283,22 @@ class T_import_civitai(unittest.TestCase):
 
     def prompts_doc(self):
         return bench.load_yaml(self.tmp / "prompts.yaml")
+
+    def test_civitai_red_uses_its_own_host(self):
+        res = self.run_import("https://civitai.red/images/12097475")
+        self.assertEqual(self.api_urls, ["https://civitai.red/api/v1/images"])
+        self.assertEqual(res["url"], "https://civitai.red/images/12097475")
+        g, = bench.Store(self.tmp / "results").generations()
+        self.assertEqual(g["source"], "https://civitai.red/images/12097475")
+        self.assertEqual(bench.civitai_preview("civitai.red/images/12097475")["url"],
+                         "https://civitai.red/images/12097475")
+
+    def test_same_image_on_both_hosts_is_one_import(self):
+        self.run_import("https://civitai.com/images/12097475")
+        res = self.run_import("https://civitai.red/images/12097475")   # same id, same picture
+        self.assertFalse(res["image_added"])
+        self.assertFalse(res["prompt_added"])
+        self.assertEqual(self.image_downloads, 1)
 
     def test_first_import_adds_record_and_prompt(self):
         res = self.run_import()
