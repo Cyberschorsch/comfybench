@@ -206,8 +206,8 @@ class T_civitai_extract(unittest.TestCase):
         self.assertEqual(neg, "lowres")
         self.assertEqual(seed, 3269595310)
         self.assertEqual(model, "ponyDiffusionV6XL")
-        self.assertEqual(params, {"steps": 25, "cfg": 7, "sampler": "Euler a",
-                                  "scheduler": "Karras", "denoise": 0.6})
+        self.assertEqual(params, {"steps": 25, "cfg": 7, "sampler": "euler_ancestral",
+                                  "scheduler": "karras", "denoise": 0.6})   # A1111 names → ComfyUI
         self.assertEqual(size, (896, 1152))   # generation size wins over the file's 1520x1952
 
     def test_comfy_graph_fills_gaps(self):
@@ -235,6 +235,29 @@ class T_civitai_extract(unittest.TestCase):
                 "meta": {"prompt": "flat prompt", "comfy": "{not json"}}
         pos, *_ = bench.civitai_extract(item)
         self.assertEqual(pos, "flat prompt")
+
+    def test_sampler_names_to_comfy(self):
+        cases = {
+            ("Euler a", None): ("euler_ancestral", None),
+            ("DPM++ 2M Karras", None): ("dpmpp_2m", "karras"),           # legacy combined name
+            ("DPM++ 2M SDE", "Exponential"): ("dpmpp_2m_sde", "exponential"),
+            ("DPM++ 2M Karras", "SGM Uniform"): ("dpmpp_2m", "sgm_uniform"),  # explicit schedule type wins
+            ("dpmpp_2m", "karras"): ("dpmpp_2m", "karras"),             # already ComfyUI names
+            ("GPT-Image-2.5-flare", None): (None, None),                 # model name from Civitai's generator
+            ("Restart", "Align Your Steps"): (None, None),               # no ComfyUI equivalent
+            (None, "Automatic"): (None, None),
+            # spellings seen live on Civitai
+            ("euler_simple", None): ("euler", "simple"),
+            ("Euler simple", None): ("euler", "simple"),
+            ("euler_a", "simple"): ("euler_ancestral", "simple"),
+            ("ER SDE", "Beta"): ("er_sde", "beta"),
+            ("DPM++ 2M SDE Heun Karras", None): ("dpmpp_2m_sde_heun", "karras"),
+            ("Undefined", None): (None, None),
+            ("linear/euler", None): (None, None),
+            ("res_2s", None): (None, None),                              # custom node sampler, not core ComfyUI
+        }
+        for (s, sch), want in cases.items():
+            self.assertEqual(bench.civitai_sampler(s, sch), want, (s, sch))
 
     def test_generator_placeholders_are_dropped(self):
         # Civitai's on-site generator with API models (e.g. OpenAI) sends seed -1, steps 0, cfgScale 0
@@ -334,8 +357,8 @@ class T_import_civitai(unittest.TestCase):
         self.assertEqual(p[0]["negative"], "lowres")
         self.assertEqual(p[0]["seeds"], [3269595310])
         self.assertEqual(p[0]["width"], 896)
-        self.assertEqual(p[0]["params"], {"steps": 25, "cfg": 7, "sampler": "Euler a",
-                                          "scheduler": "Karras", "denoise": 0.6})
+        self.assertEqual(p[0]["params"], {"steps": 25, "cfg": 7, "sampler": "euler_ancestral",
+                                          "scheduler": "karras", "denoise": 0.6})
 
     def test_second_import_is_a_noop(self):
         self.run_import()
@@ -379,8 +402,8 @@ class T_import_civitai(unittest.TestCase):
         self.assertEqual(res["negative"], "lowres")
         self.assertEqual(res["seed"], 3269595310)
         self.assertEqual(res["model"], "ponyDiffusionV6XL")
-        self.assertEqual(res["params"], {"steps": 25, "cfg": 7, "sampler": "Euler a",
-                                         "scheduler": "Karras", "denoise": 0.6})
+        self.assertEqual(res["params"], {"steps": 25, "cfg": 7, "sampler": "euler_ancestral",
+                                         "scheduler": "karras", "denoise": 0.6})
         self.assertEqual((res["width"], res["height"]), (896, 1152))
         self.assertIn("image.civitai.com", res["thumb"])
         self.assertIn("width=300", res["thumb"])                     # small CDN preview variant, not the 1 MB file

@@ -1466,6 +1466,32 @@ def cmd_import(args):
 CIVITAI_SITES = ("civitai.com", "civitai.red")   # .red is the mature-content site: same ids, same API
 CIVITAI_PROMPT_PARAMS = ("steps", "cfg", "sampler", "scheduler", "denoise", "guidance")
 CIVITAI_EXTS = {".png", ".jpg", ".jpeg", ".webp"}
+# Core ComfyUI KSampler names (comfy/samplers.py: SAMPLER_NAMES, SCHEDULER_HANDLERS)
+COMFY_SAMPLERS = (
+    "euler", "euler_cfg_pp", "euler_ancestral", "euler_ancestral_cfg_pp", "heun", "heunpp2",
+    "exp_heun_2_x0", "exp_heun_2_x0_sde", "dpm_2", "dpm_2_ancestral", "lms", "dpm_fast", "dpm_adaptive",
+    "dpmpp_2s_ancestral", "dpmpp_2s_ancestral_cfg_pp", "dpmpp_sde", "dpmpp_sde_gpu", "dpmpp_2m",
+    "dpmpp_2m_cfg_pp", "dpmpp_2m_sde", "dpmpp_2m_sde_gpu", "dpmpp_2m_sde_heun", "dpmpp_2m_sde_heun_gpu",
+    "dpmpp_3m_sde", "dpmpp_3m_sde_gpu", "ddpm", "lcm", "ipndm", "ipndm_v", "deis", "cfgpp_ud10_ab",
+    "res_multistep", "res_multistep_cfg_pp", "res_multistep_ancestral", "res_multistep_ancestral_cfg_pp",
+    "gradient_estimation", "gradient_estimation_cfg_pp", "er_sde", "seeds_2", "seeds_3", "sa_solver",
+    "sa_solver_pece", "ddim", "uni_pc", "uni_pc_bh2")
+COMFY_SCHEDULERS = ("simple", "sgm_uniform", "karras", "exponential", "ddim_uniform", "beta", "normal",
+                    "linear_quadratic", "kl_optimal")
+
+
+def _sampler_key(name):
+    """Spelling-independent lookup key: "Euler_A" and "euler a" → "euler a"."""
+    return re.sub(r"[\s_]+", " ", name.strip().lower()) if isinstance(name, str) else ""
+
+
+# ComfyUI names in any spelling, plus the A1111 / Forge names Civitai reports
+SAMPLER_ALIASES = {**{_sampler_key(n): n for n in COMFY_SAMPLERS},
+                   "euler a": "euler_ancestral", "dpm2": "dpm_2", "dpm2 a": "dpm_2_ancestral",
+                   "dpm++ 2s a": "dpmpp_2s_ancestral", "dpm++ 2m": "dpmpp_2m", "dpm++ sde": "dpmpp_sde",
+                   "dpm++ 2m sde": "dpmpp_2m_sde", "dpm++ 2m sde heun": "dpmpp_2m_sde_heun",
+                   "dpm++ 3m sde": "dpmpp_3m_sde", "unipc": "uni_pc"}
+SCHEDULER_ALIASES = {**{_sampler_key(n): n for n in COMFY_SCHEDULERS}, "ddim": "ddim_uniform"}
 
 
 def parse_civitai_url(url):
@@ -1515,6 +1541,19 @@ def civitai_fetch(url, timeout=20):
     raise BenchError("Civitai is rate-limiting (HTTP 429) – try again in a moment")
 
 
+def civitai_sampler(sampler, scheduler):
+    """(ComfyUI sampler, ComfyUI scheduler) for names as Civitai reports them; None for what
+    core ComfyUI does not have (e.g. "Restart", or a model name from Civitai's own generator)."""
+    sch = SCHEDULER_ALIASES.get(_sampler_key(scheduler))
+    s = _sampler_key(sampler)
+    if s and s not in SAMPLER_ALIASES:
+        for alias, name in SCHEDULER_ALIASES.items():   # combined names: "DPM++ 2M Karras", "euler_simple"
+            if s.endswith(" " + alias) and s[:-len(alias) - 1] in SAMPLER_ALIASES:
+                s, sch = s[:-len(alias) - 1], sch or name
+                break
+    return SAMPLER_ALIASES.get(s), sch
+
+
 def civitai_extract(item):
     """(positive, negative, seed, model, params, (width, height)) of a Civitai image item.
     A ComfyUI graph in meta.comfy is ground truth; flat A1111-style keys fill the rest."""
@@ -1556,6 +1595,8 @@ def civitai_extract(item):
             continue                 # placeholders of Civitai's generator for API models (OpenAI etc.)
         if dst not in params and isinstance(v, (int, float, str)) and not isinstance(v, bool) and str(v).strip():
             params[dst] = v
+    sampler, scheduler = civitai_sampler(params.pop("sampler", None), params.pop("scheduler", None))
+    params.update({k: v for k, v in (("sampler", sampler), ("scheduler", scheduler)) if v})
     w, h = item.get("width"), item.get("height")
     m = re.match(r"^\s*(\d+)\s*[x×]\s*(\d+)\s*$", str(meta.get("Size") or ""))
     if m:                            # the generation size, not a resized upload
