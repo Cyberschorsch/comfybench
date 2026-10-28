@@ -182,7 +182,7 @@ python -m unittest -v                                  # tests (from the repo ro
 
 `import` reads PNGs with ComfyUI metadata (prompt, negative, seed, model, sampler values) into the gallery as "own image". Benchmark images and files imported before are skipped, so it is safe to run repeatedly.
 
-`import-url` takes a Civitai picture URL (`civitai.com/images/<id>` or `/posts/<id>`; `civitai.red` works the same way, mature pictures included): the image and its generation parameters land in the gallery as an "own image", and a ready-made entry (`category: Civitai`, prompt, negative, size, seed, steps/cfg/sampler) is added to `prompts.yaml` unless that id already exists. No API token needed. In the browser (**Gallery**), pasting the URL and clicking **Import** first opens a preview dialog – picture, prompt and parameters – where the prompt ID and category can still be changed before anything is written.
+`import-url` takes a Civitai picture URL (`civitai.com/images/<id>` or `/posts/<id>`; `civitai.red` works the same way, mature pictures included): the image and its generation parameters land in the gallery as an "own image", and a ready-made entry (`category: Civitai`, prompt, negative, size, seed, steps/cfg/sampler) is added to `prompts.yaml` unless that id already exists. No API token needed. In the browser, the **Civitai import** button in the header opens a dialog: paste the URL and a preview loads – picture, prompt and parameters – where the prompt ID and category can still be changed before anything is written.
 
 Global options `--config` and `--prompts-file` point to other files.
 

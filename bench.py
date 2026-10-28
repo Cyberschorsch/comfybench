@@ -1546,12 +1546,14 @@ def civitai_extract(item):
             cseed = int(meta["seed"]) if meta.get("seed") is not None else None
         except (TypeError, ValueError):
             cseed = None
-    seed = cseed
+    seed = cseed if cseed is None or cseed >= 0 else None   # -1 = "random", not reproducible
     params = dict(cparams)
     for src, dst in (("steps", "steps"), ("cfgScale", "cfg"), ("sampler", "sampler"),
                      ("Schedule type", "scheduler"), ("Denoising strength", "denoise"),
                      ("denoise", "denoise")):
         v = meta.get(src)
+        if dst in ("steps", "cfg") and isinstance(v, (int, float)) and v <= 0:
+            continue                 # placeholders of Civitai's generator for API models (OpenAI etc.)
         if dst not in params and isinstance(v, (int, float, str)) and not isinstance(v, bool) and str(v).strip():
             params[dst] = v
     w, h = item.get("width"), item.get("height")

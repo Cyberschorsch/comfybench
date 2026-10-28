@@ -224,6 +224,7 @@ dialog.dlg::backdrop{background:rgba(0,0,0,.45)}
     <h1>ComfyBench</h1>
     <nav><button data-view="grid">Compare</button><button data-view="gallery">Gallery</button><button data-view="run" id="nav-run">Generate</button><button data-view="setup" id="nav-setup">Setup</button></nav>
     <button id="reload" title="Reload">↻</button>
+    <button id="civitai-open" title="Import a picture from Civitai (civitai.com / civitai.red): image into the gallery, prompt into prompts.yaml">Civitai import</button>
     <span id="status"></span>
   </div>
   <div class="ctrl" id="ctrl-grid">
@@ -240,10 +241,6 @@ dialog.dlg::backdrop{background:rgba(0,0,0,.45)}
     <div><label>Min. </label><select id="gMin"><option value="0">all</option><option value="1">★</option><option value="2">★★</option><option value="3">★★★</option><option value="4">★★★★</option><option value="5">★★★★★</option></select></div>
     <div><label>Sort </label><select id="gSort"><option value="new">newest</option><option value="best">best</option><option value="old">oldest</option></select></div>
     <input type="search" id="gq" placeholder="Text, variant, note…">
-    <span id="civitai-imp" style="display:flex;gap:6px;align-items:center;margin-left:auto">
-      <input type="search" id="civitai-url" placeholder="Civitai picture URL…" style="width:230px">
-      <button id="civitai-import" title="Import the picture into the gallery and add its prompt to prompts.yaml">Import</button>
-    </span>
   </div>
   <div class="ctrl on" id="ctrl-size" style="margin-top:6px"><label>Size </label><input id="size" type="range" min="160" max="560" value="280"></div>
 </header>
@@ -342,7 +339,7 @@ function stars(id){
 }
 
 async function load(){
-  if(EMBED){ D = EMBED; STATIC = true; $("#civitai-imp").style.display = "none"; }   // static report has no server
+  if(EMBED){ D = EMBED; STATIC = true; $("#civitai-open").style.display = "none"; }   // static report has no server
   else {
     try { const r = await fetch("api/data"); D = await r.json(); if(D.error) throw new Error(D.error); }
     catch(e){ document.body.insertAdjacentHTML("beforeend", `<p class="empty">Could not load data: ${esc(e.message)}</p>`); return; }
@@ -749,7 +746,7 @@ async function deleteGeneration(id){
 }
 // ---------------------------------------------------------- Events
 document.addEventListener("click", e => {
-  if(e.target.closest("#civitai-import")){ civitaiImport(); return; }
+  if(e.target.closest("#civitai-open")){ openCivitaiDialog(); return; }
   const del = e.target.closest(".del-btn, .del-btn-card");
   if(del){ deleteGeneration(del.dataset.del); return; }
   const star = e.target.closest(".stars span[data-r]");
@@ -806,7 +803,6 @@ window.addEventListener("hashchange", applyHash);
 window.addEventListener("popstate", applyHash);
 window.addEventListener("resize", syncGridView);
 document.addEventListener("keydown", e => {
-  if(e.target.id === "civitai-url" && e.key === "Enter"){ e.preventDefault(); civitaiImport(); return; }
   if(!$("#lb").classList.contains("open") || $("dialog[open]")) return;
   if(e.key === "Escape"){ e.target.blur && e.target.blur(); closeLb(); return; }
   if(e.target.tagName === "TEXTAREA") return;
@@ -1073,29 +1069,54 @@ async function suRunCheck(quiet){
 async function reloadGalleryData(){
   try { const r = await fetch("api/data"); const d = await r.json(); if(!d.error){ D = d; index(); fillControls(); } } catch(e){}
 }
-async function civitaiImport(){
-  const inp = $("#civitai-url"), btn = $("#civitai-import"), url = inp.value.trim();
-  if(!url || btn.disabled) return;
-  btn.disabled = true;
-  try {
-    const pv = await api("POST", "api/civitai/preview", {url});   // fetches metadata only – writes nothing
-    inp.value = "";
-    showCivitaiDialog(url, pv);
-  } catch(e){ showCivitaiDialog(url, {error: e.message}); }       // keep the URL in the field so it can be fixed
-  btn.disabled = false;
+// One modal: paste a URL → preview loads in place → adjust prompt ID / category → Import.
+function openCivitaiDialog(){
+  const d = uiDialog(`<form method="dialog">
+    <h3>Import from Civitai</h3>
+    <label class="dlg-l">Picture URL<input type="text" id="civ-url" placeholder="https://civitai.com/images/…  or  civitai.red/images/…" autocomplete="off" spellcheck="false" autofocus></label>
+    <div id="civ-pv"></div>
+    <div class="dlg-err"></div>
+    <div class="dlg-btns"><button type="button" data-close>Cancel</button><button class="btn-p">Preview</button></div>
+  </form>`, {wide: true});
+  const form = d.querySelector("form"), urlIn = d.querySelector("#civ-url"), box = d.querySelector("#civ-pv"),
+        err = d.querySelector(".dlg-err"), go = d.querySelector("button.btn-p");
+  let pv = null, pvUrl = "";
+  const reset = () => { pv = null; box.innerHTML = ""; go.textContent = "Preview"; };
+  urlIn.oninput = () => { err.textContent = ""; if(pv && urlIn.value.trim() !== pvUrl) reset(); };
+  urlIn.addEventListener("paste", () => setTimeout(() => urlIn.value.trim() && form.requestSubmit()));   // load right away
+  form.addEventListener("submit", async e => {
+    e.preventDefault();                     // stays open until the import really finished
+    if(go.disabled) return;
+    const url = urlIn.value.trim();
+    if(!pv){
+      if(!url){ err.textContent = "Paste a Civitai picture URL"; urlIn.focus(); return; }
+      go.disabled = true; go.textContent = "Loading…";
+      try {
+        pv = await api("POST", "api/civitai/preview", {url});   // fetches metadata only – writes nothing
+        pvUrl = url; showCivitaiPreview(box, pv, err); go.textContent = "Import";
+      } catch(ex){ reset(); err.textContent = ex.message; urlIn.focus(); }
+      go.disabled = false;
+      return;
+    }
+    const pid = box.querySelector("#civ-pid"), id = pid.value.trim();
+    if(!id){ err.textContent = "Please enter a prompt ID"; pid.focus(); return; }
+    if(!RE_ID.test(id)){ err.textContent = "Letters, digits, - _ . only"; pid.focus(); return; }
+    go.disabled = true;
+    try {
+      const r = await api("POST", "api/import-url", {url: pvUrl, prompt_id: id, category: box.querySelector("#civ-cat").value.trim()});
+      d.close();
+      toast((r.image_added ? "Image imported" : "Image already there") + " · prompt " + r.prompt_id + (r.prompt_added ? " added" : " already exists"));
+      await reloadGalleryData();
+      S.view = "gallery"; save(); render();   // show where the picture landed
+    } catch(ex){ err.textContent = ex.message; go.disabled = false; }
+  });
 }
-function showCivitaiDialog(url, pv){
-  if(pv.error){
-    uiDialog(`<form method="dialog"><h3>Import from Civitai</h3><p class="dlg-err" style="min-height:0">${esc(pv.error)}</p>
-      <div class="dlg-btns"><button value="ok" autofocus>Close</button></div></form>`);
-    return;
-  }
+function showCivitaiPreview(box, pv, err){
   const p = pv.params || {}, facts = [p.steps != null ? p.steps + " steps" : null, p.cfg != null ? "cfg " + p.cfg : null,
     p.sampler, p.scheduler, pv.width && pv.height ? pv.width + "×" + pv.height : null].filter(Boolean).join(" · ");
   const cats = [...new Set((D.prompts || []).map(x => x.category).filter(Boolean))];
-  const d = uiDialog(`<form method="dialog">
-    <h3>Import from Civitai</h3>
-    <div style="display:flex;gap:12px;margin-top:8px;align-items:flex-start">
+  box.innerHTML = `
+    <div style="display:flex;gap:12px;margin-top:12px;align-items:flex-start">
       ${pv.thumb ? `<img src="${esc(pv.thumb)}" alt="Civitai picture" style="width:150px;max-height:230px;object-fit:contain;background:var(--bg);border:1px solid var(--line);border-radius:8px">` : ""}
       <div style="flex:1;min-width:0">
         <div class="hint"><a href="${esc(pv.url)}" target="_blank" rel="noopener">${esc(pv.url)}</a></div>
@@ -1105,37 +1126,20 @@ function showCivitaiDialog(url, pv){
     </div>
     <div class="su-grid" style="margin-top:12px">
       <label for="civ-pid">Prompt-ID</label>
-      <input type="text" id="civ-pid" value="${esc(pv.prompt_id)}" autocomplete="off" spellcheck="false" autofocus>
+      <input type="text" id="civ-pid" value="${esc(pv.prompt_id)}" autocomplete="off" spellcheck="false">
       <label for="civ-cat">Category</label>
       <input type="text" id="civ-cat" value="Civitai" autocomplete="off" list="civ-cats">
       <datalist id="civ-cats">${cats.map(c => `<option>${esc(c)}</option>`).join("")}</datalist>
     </div>
     <label class="dlg-l" style="margin-top:10px">Prompt<textarea readonly rows="4">${esc(pv.prompt)}</textarea></label>
-    ${pv.negative ? `<label class="dlg-l" style="margin-top:8px">Negative<textarea readonly rows="2">${esc(pv.negative)}</textarea></label>` : ""}
-    <div class="dlg-err"></div>
-    <div class="dlg-btns"><button type="button" data-close>Cancel</button><button class="btn-p">Import</button></div>
-  </form>`, {wide: true});
-  const err = d.querySelector(".dlg-err"), pid = d.querySelector("#civ-pid"), cat = d.querySelector("#civ-cat");
+    ${pv.negative ? `<label class="dlg-l" style="margin-top:8px">Negative<textarea readonly rows="2">${esc(pv.negative)}</textarea></label>` : ""}`;
+  const pid = box.querySelector("#civ-pid");
   pid.oninput = () => {
     const v = pid.value.trim();
     err.textContent = !v ? "" : !RE_ID.test(v) ? "Letters, digits, - _ . only"
       : (D.prompts || []).some(x => x.id === v) ? `"${v}" exists – the entry will be skipped, the image is still imported` : "";
   };
   pid.oninput();
-  d.querySelector("form").addEventListener("submit", async e => {
-    e.preventDefault();                     // stays open until the import really finished
-    const id = pid.value.trim();
-    if(!id){ err.textContent = "Please enter a prompt ID"; pid.focus(); return; }
-    if(!RE_ID.test(id)){ err.textContent = "Letters, digits, - _ . only"; pid.focus(); return; }
-    const go = d.querySelector("button.btn-p");
-    go.disabled = true;
-    try {
-      const r = await api("POST", "api/import-url", {url, prompt_id: id, category: cat.value.trim()});
-      d.close();
-      toast((r.image_added ? "Image imported" : "Image already there") + " · prompt " + r.prompt_id + (r.prompt_added ? " added" : " already exists"));
-      await reloadGalleryData(); render();
-    } catch(ex){ err.textContent = ex.message; go.disabled = false; }
-  });
 }
 window.addEventListener("beforeunload", e => { if(SU.dirty.config || SU.dirty.prompts){ e.preventDefault(); e.returnValue = ""; } });
 

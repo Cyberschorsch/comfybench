@@ -236,6 +236,15 @@ class T_civitai_extract(unittest.TestCase):
         pos, *_ = bench.civitai_extract(item)
         self.assertEqual(pos, "flat prompt")
 
+    def test_generator_placeholders_are_dropped(self):
+        # Civitai's on-site generator with API models (e.g. OpenAI) sends seed -1, steps 0, cfgScale 0
+        item = {"id": 1, "url": "u", "width": 1024, "height": 1536,
+                "meta": {"prompt": "p", "seed": -1, "steps": 0, "cfgScale": 0}}
+        _, _, seed, _, params, _ = bench.civitai_extract(item)
+        self.assertIsNone(seed)
+        self.assertNotIn("steps", params)
+        self.assertNotIn("cfg", params)
+
     def test_no_prompt(self):
         pos, neg, seed, model, params, size = bench.civitai_extract({"id": 1, "url": "u", "meta": {}})
         self.assertIsNone(pos)
