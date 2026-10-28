@@ -1561,16 +1561,39 @@ def civitai_extract(item):
     return pos, neg, seed, model, params, (w, h)
 
 
-def import_civitai(url, config_path, prompts_path):
+def civitai_read(url):
+    """(image item, (pos, neg, seed, model, params, (w, h))) behind a picture URL.
+    Raises BenchError when the uploader shared no prompt – nothing can be benchmarked then."""
+    item = civitai_fetch(url)
+    data = civitai_extract(item)
+    if not data[0]:
+        raise BenchError("This picture has no shared prompt (the uploader did not include metadata)")
+    return item, data
+
+
+def civitai_preview(url):
+    """Metadata for a Civitai picture URL – no image download, nothing written."""
+    item, (pos, neg, seed, model, params, (w, h)) = civitai_read(url)
+    image_id = item.get("id")
+    img = str(item.get("url") or "")
+    return {"url": f"https://civitai.com/images/{image_id}", "prompt_id": f"civitai-{image_id}",
+            "prompt": pos, "negative": neg or "", "seed": seed, "model": model or "",
+            "params": {k: params[k] for k in CIVITAI_PROMPT_PARAMS if k in params},
+            "width": w, "height": h,
+            "thumb": img.replace("original=true", "width=300")}   # CDN preview variant (falls back to the full file)
+
+
+def import_civitai(url, config_path, prompts_path, prompt_id=None, category=None):
     """One Civitai picture → gallery record + prompts.yaml entry. Returns a summary dict."""
+    if prompt_id is not None:          # a bad custom id must fail before anything is fetched or written
+        prompt_id = str(prompt_id).strip()
+        if not SLUG.match(prompt_id):
+            raise BenchError(f"Prompt ID \"{prompt_id}\": letters, digits, - _ . only")
     cfg, _ = load_all(config_path, prompts_path)
     base = out_dir(cfg)
     store = Store(base)
     known = {g.get("fingerprint") for g in store.generations()}
-    item = civitai_fetch(url)
-    pos, neg, seed, model, params, (w, h) = civitai_extract(item)
-    if not pos:
-        raise BenchError("This picture has no shared prompt (the uploader did not include metadata)")
+    item, (pos, neg, seed, model, params, (w, h)) = civitai_read(url)
     image_id = item.get("id")
     source = f"https://civitai.com/images/{image_id}"
     values = dict(params)
@@ -1599,11 +1622,14 @@ def import_civitai(url, config_path, prompts_path):
             "seconds": None, "at": dt.datetime.now().isoformat(timespec="seconds"), "source": source,
         })
         image_added = True
-    prompt_id = f"civitai-{image_id}"
+    pid = prompt_id or f"civitai-{image_id}"
     prompt_added = False
     doc = load_yaml(prompts_path)
-    if not any(str(p.get("id")) == prompt_id for p in doc.get("prompts") or []):
-        entry = {"id": prompt_id, "category": "Civitai", "prompt": pos}
+    if not any(str(p.get("id")) == pid for p in doc.get("prompts") or []):
+        entry = {"id": pid, "prompt": pos}
+        cat = "Civitai" if category is None else str(category).strip()
+        if cat:                                   # a cleared category stays out of the YAML
+            entry["category"] = cat
         if neg:
             entry["negative"] = neg
         if w and h:
@@ -1617,7 +1643,7 @@ def import_civitai(url, config_path, prompts_path):
         validate_prompts(doc)
         write_yaml(prompts_path, doc, PROMPTS_HEADER)
         prompt_added = True
-    return {"url": source, "prompt_id": prompt_id,
+    return {"url": source, "prompt_id": pid,
             "image_added": image_added, "prompt_added": prompt_added}
 
 
@@ -2025,11 +2051,18 @@ def cmd_serve(args):
                             dest.write_bytes(raw)
                             return self.ok({"path": name})
                         return self.err("unknown upload")
+                    if path == "/api/civitai/preview":
+                        url = str(data.get("url") or "").strip()
+                        if not url:
+                            return self.err("Paste a Civitai picture URL first")
+                        return self.ok(civitai_preview(url))
                     if path == "/api/import-url":
                         url = str(data.get("url") or "").strip()
                         if not url:
                             return self.err("Paste a Civitai picture URL first")
-                        return self.ok(import_civitai(url, args.config, args.prompts_file))
+                        return self.ok(import_civitai(url, args.config, args.prompts_file,
+                                                      prompt_id=data.get("prompt_id"),
+                                                      category=data.get("category")))
                     if path == "/api/delete":
                         try:
                             gid = str(data.get("id", ""))

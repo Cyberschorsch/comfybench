@@ -338,6 +338,58 @@ class T_import_civitai(unittest.TestCase):
         with self.assertRaises(BenchError):
             self.run_import("https://example.com/images/1")
 
+    def test_preview_has_no_side_effects(self):
+        res = bench.civitai_preview("https://civitai.com/images/12097475")
+        self.assertEqual(res["prompt_id"], "civitai-12097475")
+        self.assertEqual(res["url"], "https://civitai.com/images/12097475")
+        self.assertEqual(res["prompt"], "1girl, portrait, soft light")
+        self.assertEqual(res["negative"], "lowres")
+        self.assertEqual(res["seed"], 3269595310)
+        self.assertEqual(res["model"], "ponyDiffusionV6XL")
+        self.assertEqual(res["params"], {"steps": 25, "cfg": 7, "sampler": "Euler a",
+                                         "scheduler": "Karras", "denoise": 0.6})
+        self.assertEqual((res["width"], res["height"]), (896, 1152))
+        self.assertIn("image.civitai.com", res["thumb"])
+        self.assertIn("width=300", res["thumb"])                     # small CDN preview variant, not the 1 MB file
+        self.assertEqual(self.image_downloads, 0)                       # never fetched the file
+        self.assertEqual(bench.Store(self.tmp / "results").generations(), [])   # never wrote
+        self.assertEqual(self.prompts_doc()["prompts"], [])
+
+    def test_preview_without_prompt_raises(self):
+        self.item = dict(CIVITAI_ITEM, meta={"steps": 25})
+        with self.assertRaises(BenchError):
+            bench.civitai_preview("https://civitai.com/images/12097475")
+
+    def test_custom_prompt_id_and_category(self):
+        res = bench.import_civitai("https://civitai.com/images/12097475",
+                                   self.tmp / "config.yaml", self.tmp / "prompts.yaml",
+                                   prompt_id="my-grab", category="Favorites")
+        self.assertEqual(res["prompt_id"], "my-grab")
+        p = self.prompts_doc()["prompts"]
+        self.assertEqual(p[0]["id"], "my-grab")
+        self.assertEqual(p[0]["category"], "Favorites")
+        gens = bench.Store(self.tmp / "results").generations()
+        self.assertEqual(gens[0]["fingerprint"], "civitai:12097475")     # dedupe stays per image
+
+    def test_invalid_custom_id_fails_before_anything(self):
+        with self.assertRaises(BenchError):
+            bench.import_civitai("https://civitai.com/images/12097475",
+                                 self.tmp / "config.yaml", self.tmp / "prompts.yaml",
+                                 prompt_id="Bad ID!")
+        self.assertEqual(bench.Store(self.tmp / "results").generations(), [])
+        self.assertEqual(self.prompts_doc()["prompts"], [])
+        self.assertEqual(self.image_downloads, 0)
+
+    def test_custom_id_on_reimport_adds_only_a_new_prompt(self):
+        self.run_import()
+        res = bench.import_civitai("https://civitai.com/images/12097475",
+                                   self.tmp / "config.yaml", self.tmp / "prompts.yaml",
+                                   prompt_id="second-name")
+        self.assertFalse(res["image_added"])
+        self.assertTrue(res["prompt_added"])
+        self.assertEqual([p["id"] for p in self.prompts_doc()["prompts"]],
+                         ["civitai-12097475", "second-name"])
+
 
 if __name__ == "__main__":
     unittest.main()

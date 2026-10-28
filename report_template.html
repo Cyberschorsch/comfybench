@@ -209,8 +209,9 @@ dialog.dlg::backdrop{background:rgba(0,0,0,.45)}
 .dlg h3{margin:0 0 8px;font-size:15px}
 .dlg p{margin:0;white-space:pre-wrap}
 .dlg-l{display:flex;flex-direction:column;gap:6px}
-.dlg input[type=text],.dlg select{font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;width:100%}
-.dlg input[type=text]:focus,.dlg select:focus{outline:2px solid var(--accent-bg);border-color:var(--accent)}
+.dlg input[type=text],.dlg select,.dlg textarea{font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;width:100%}
+.dlg textarea{resize:vertical;line-height:1.45}
+.dlg input[type=text]:focus,.dlg select:focus,.dlg textarea:focus{outline:2px solid var(--accent-bg);border-color:var(--accent)}
 .dlg-err{color:var(--err);font-size:12.5px;min-height:1.3em;margin-top:6px}
 .dlg-btns{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
 .btn-d{background:var(--err);color:var(--panel);border-color:var(--err)}
@@ -1077,12 +1078,64 @@ async function civitaiImport(){
   if(!url || btn.disabled) return;
   btn.disabled = true;
   try {
-    const r = await api("POST", "api/import-url", {url});
+    const pv = await api("POST", "api/civitai/preview", {url});   // fetches metadata only – writes nothing
     inp.value = "";
-    toast((r.image_added ? "Image imported" : "Image already there") + " · prompt " + r.prompt_id + (r.prompt_added ? " added" : " already exists"));
-    await reloadGalleryData(); render();
-  } catch(e){ toast("Import failed: " + e.message); }
+    showCivitaiDialog(url, pv);
+  } catch(e){ showCivitaiDialog(url, {error: e.message}); }       // keep the URL in the field so it can be fixed
   btn.disabled = false;
+}
+function showCivitaiDialog(url, pv){
+  if(pv.error){
+    uiDialog(`<form method="dialog"><h3>Import from Civitai</h3><p class="dlg-err" style="min-height:0">${esc(pv.error)}</p>
+      <div class="dlg-btns"><button value="ok" autofocus>Close</button></div></form>`);
+    return;
+  }
+  const p = pv.params || {}, facts = [p.steps != null ? p.steps + " steps" : null, p.cfg != null ? "cfg " + p.cfg : null,
+    p.sampler, p.scheduler, pv.width && pv.height ? pv.width + "×" + pv.height : null].filter(Boolean).join(" · ");
+  const cats = [...new Set((D.prompts || []).map(x => x.category).filter(Boolean))];
+  const d = uiDialog(`<form method="dialog">
+    <h3>Import from Civitai</h3>
+    <div style="display:flex;gap:12px;margin-top:8px;align-items:flex-start">
+      ${pv.thumb ? `<img src="${esc(pv.thumb)}" alt="Civitai picture" style="width:150px;max-height:230px;object-fit:contain;background:var(--bg);border:1px solid var(--line);border-radius:8px">` : ""}
+      <div style="flex:1;min-width:0">
+        <div class="hint"><a href="${esc(pv.url)}" target="_blank" rel="noopener">${esc(pv.url)}</a></div>
+        <div style="margin-top:6px"><b>${esc(pv.model || "model not shared")}</b></div>
+        <div class="hint">${esc(facts)}</div>
+      </div>
+    </div>
+    <div class="su-grid" style="margin-top:12px">
+      <label for="civ-pid">Prompt-ID</label>
+      <input type="text" id="civ-pid" value="${esc(pv.prompt_id)}" autocomplete="off" spellcheck="false" autofocus>
+      <label for="civ-cat">Category</label>
+      <input type="text" id="civ-cat" value="Civitai" autocomplete="off" list="civ-cats">
+      <datalist id="civ-cats">${cats.map(c => `<option>${esc(c)}</option>`).join("")}</datalist>
+    </div>
+    <label class="dlg-l" style="margin-top:10px">Prompt<textarea readonly rows="4">${esc(pv.prompt)}</textarea></label>
+    ${pv.negative ? `<label class="dlg-l" style="margin-top:8px">Negative<textarea readonly rows="2">${esc(pv.negative)}</textarea></label>` : ""}
+    <div class="dlg-err"></div>
+    <div class="dlg-btns"><button type="button" data-close>Cancel</button><button class="btn-p">Import</button></div>
+  </form>`, {wide: true});
+  const err = d.querySelector(".dlg-err"), pid = d.querySelector("#civ-pid"), cat = d.querySelector("#civ-cat");
+  pid.oninput = () => {
+    const v = pid.value.trim();
+    err.textContent = !v ? "" : !RE_ID.test(v) ? "Letters, digits, - _ . only"
+      : (D.prompts || []).some(x => x.id === v) ? `"${v}" exists – the entry will be skipped, the image is still imported` : "";
+  };
+  pid.oninput();
+  d.querySelector("form").addEventListener("submit", async e => {
+    e.preventDefault();                     // stays open until the import really finished
+    const id = pid.value.trim();
+    if(!id){ err.textContent = "Please enter a prompt ID"; pid.focus(); return; }
+    if(!RE_ID.test(id)){ err.textContent = "Letters, digits, - _ . only"; pid.focus(); return; }
+    const go = d.querySelector("button.btn-p");
+    go.disabled = true;
+    try {
+      const r = await api("POST", "api/import-url", {url, prompt_id: id, category: cat.value.trim()});
+      d.close();
+      toast((r.image_added ? "Image imported" : "Image already there") + " · prompt " + r.prompt_id + (r.prompt_added ? " added" : " already exists"));
+      await reloadGalleryData(); render();
+    } catch(ex){ err.textContent = ex.message; go.disabled = false; }
+  });
 }
 window.addEventListener("beforeunload", e => { if(SU.dirty.config || SU.dirty.prompts){ e.preventDefault(); e.returnValue = ""; } });
 
