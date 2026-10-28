@@ -7,7 +7,8 @@ services:
     # Files in the data folder belong to your user instead of root (set UID/GID in .env if needed)
     user: "${PUID:-1000}:${PGID:-1000}"
     ports:
-      - "${COMFYBENCH_PORT:-8765}:8765"
+      # Only reachable from this machine; remove 127.0.0.1: to allow network access (no login!)
+      - "127.0.0.1:${COMFYBENCH_PORT:-8765}:8765"
     environment:
       # ComfyUI runs on the host:            http://host.docker.internal:8188
       # ComfyUI runs as a container in the same compose/network: http://comfyui:8188

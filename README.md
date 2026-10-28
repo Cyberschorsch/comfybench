@@ -27,6 +27,8 @@ cp .env.example .env              # set PUID/PGID and COMFYUI_URL
 docker compose up -d --build      # UI at http://localhost:8765
 ```
 
+The UI is bound to localhost by default; to reach it from other machines remove `127.0.0.1:` in the ports line of `docker-compose.yml` – there is no login, so only do this on a trusted network.
+
 On first start the container fills `./data` with the example `config.yaml`, `prompts.yaml`, `workflows/`, `inputs/` and a copy of this README. Edit your files there; results go to `data/results/`. Existing files are never overwritten, so rebuilding the image keeps your data.
 
 CLI commands run inside the container: `docker compose exec comfybench bench run --dry-run`.

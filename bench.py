@@ -110,7 +110,9 @@ def workflow_for(model, mode):
 
 
 def load_template(rel):
-    path = ROOT / rel
+    path = (ROOT / rel).resolve()
+    if ROOT not in path.parents:
+        raise BenchError(f"Workflow {rel} is outside the data folder")
     if not path.is_file():
         raise BenchError(f"Workflow {rel} is missing")
     try:
@@ -392,7 +394,7 @@ def inject_lora_nodes(wf, lora_combo, model_input_ref):
         current_model_ref = (str(source[0]), int(source[1]))
     except (TypeError, ValueError):
         return wf, model_input_ref
-    new_node_id = max(int(k) for k in wf.keys() if k.isdigit()) + 1 if wf else 1
+    new_node_id = max((int(k) for k in wf if k.isdigit()), default=0) + 1
     
     for lora_name in lora_combo["names"]:
         lora_info = lora_combo.get("lora_info", {}).get(lora_name, {})
@@ -603,7 +605,7 @@ class Inputs:
             # Normal: look for the file in inputs/
             for b in (ROOT / "inputs", ROOT):
                 p = (b / rel).resolve()
-                if p.is_file():
+                if ROOT in p.parents and p.is_file():
                     break
             else:
                 raise FileNotFoundError(f"Input image \"{rel}\" not found (is it in inputs/? or use gen:<id>)")
@@ -1747,6 +1749,8 @@ def cmd_serve(args):
             return self.send(404, '{"error":"not found"}')
 
         def body(self):
+            if not (self.headers.get("Content-Type") or "").startswith("application/json"):
+                raise BenchError("Content-Type must be application/json")
             return json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
 
         def ok(self, obj=None):
@@ -1777,9 +1781,12 @@ def cmd_serve(args):
 
         def do_POST(self):
             path = urlparse(self.path).path
-            if path.startswith("/api/") and path != "/api/rating":
+            if path.startswith("/api/"):
                 try:
                     data = self.body()
+                    if path == "/api/rating":
+                        store.set_rating(str(data["id"]), data.get("rating") or 0, data.get("note") or "")
+                        return self.ok()
                     if path == "/api/workflow/analyze":
                         api = data.get("workflow")
                         if api is None:
@@ -1833,13 +1840,6 @@ def cmd_serve(args):
                 except (BenchError, ValueError, KeyError) as e:
                     return self.err(e)
                 return self.err("not found", 404)
-            if path == "/api/rating":
-                try:
-                    body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
-                    store.set_rating(str(body["id"]), body.get("rating") or 0, body.get("note") or "")
-                except (ValueError, KeyError) as e:
-                    return self.send(400, json.dumps({"error": str(e)}))
-                return self.send(200, '{"ok":true}')
             return self.send(404, '{"error":"not found"}')
 
     srv = ThreadingHTTPServer((args.host, args.port), Handler)
