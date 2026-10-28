@@ -5,6 +5,8 @@ on:
     branches: ["main", "master"]
   pull_request:
     branches: ["main", "master"]
+  release:
+    types: [published]
 
 env:
   REGISTRY: ghcr.io
@@ -40,6 +42,7 @@ jobs:
           tags: |
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' }}
             type=sha
+            type=ref,event=release
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
