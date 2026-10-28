@@ -478,11 +478,12 @@ def fingerprint(wf):
 class Store:
     """results/generations.jsonl (append-only) + results/ratings.json"""
 
+    lock = threading.Lock()   # shared by all instances – the server and the run thread use separate Store objects
+
     def __init__(self, base):
         self.base = base
         self.gen_path = base / "generations.jsonl"
         self.rat_path = base / "ratings.json"
-        self.lock = threading.Lock()
 
     def generations(self):
         if not self.gen_path.exists():
@@ -650,9 +651,11 @@ def submit(server, workflow, client_id):
     return r.json()["prompt_id"]
 
 
-def wait_for(server, prompt_id, timeout):
+def wait_for(server, prompt_id, timeout, abort=None):
     start = time.time()
     while True:
+        if abort is not None and abort.is_set():
+            raise RuntimeError("Aborted")
         r = requests.get(f"{server}/history/{prompt_id}", timeout=30)
         r.raise_for_status()
         hist = r.json()
@@ -665,8 +668,18 @@ def wait_for(server, prompt_id, timeout):
             if status.get("completed", True):
                 return entry
         if time.time() - start > timeout:
+            cancel(server, prompt_id)
             raise TimeoutError(f"No result after {timeout}s")
         time.sleep(1)
+
+
+def cancel(server, prompt_id):
+    """Remove our job from ComfyUI's queue and stop it if it is running."""
+    for path, body in (("/queue", {"delete": [prompt_id]}), ("/interrupt", {"prompt_id": prompt_id})):
+        try:
+            requests.post(f"{server}{path}", json=body, timeout=5)
+        except requests.RequestException:
+            pass
 
 
 def collect_images(entry):
@@ -762,7 +775,7 @@ def resolve_server(cfg):
     return (os.environ.get("COMFYUI_URL") or cfg.get("server", "http://127.0.0.1:8188")).rstrip("/")
 
 
-def execute(cfg, prompts, opts, emit, stop=None):
+def execute(cfg, prompts, opts, emit, stop=None, abort=None):
     """Core of a run – used by the CLI and the Generate tab of the gallery.
 
     opts: models, prompts, categories (lists or None), var (list of "name=a,b"), sweep (list of "name=a,b"),
@@ -870,9 +883,12 @@ def execute(cfg, prompts, opts, emit, stop=None):
             
             # Find model input for sampler (for dynamic LoRA injection)
             model_input_ref = find_model_input_for_sampler(templates[wf_rel])
-            if not model_input_ref and any(c["names"] for c in model_lora_combos):
-                emit("warn", msg=f"{mid}: no sampler model input found for dynamic LoRA injection – LoRAs are ignored")
-                model_lora_combos = [c for c in model_lora_combos if not c["names"]] or \
+            combos = model_lora_combos
+            if not model_input_ref and any(c["names"] for c in combos):
+                if (mid, wf_rel) not in warned:
+                    warned.add((mid, wf_rel))
+                    emit("warn", msg=f"{mid}: no sampler model input found for dynamic LoRA injection – LoRAs are ignored")
+                combos = [c for c in combos if not c["names"]] or \
                     [{"names": [], "strengths": {}, "triggers": {}, "combo_key": "none", "combo_label": "base"}]
             
             for variant in p["_variants"]:
@@ -881,7 +897,7 @@ def execute(cfg, prompts, opts, emit, stop=None):
                 for sw in sweep_combos:
                     full = {**variant, **sw}
                     for seed in p.get("seeds", cfg.get("seeds", [42])):
-                        for lora_combo in model_lora_combos:
+                        for lora_combo in combos:
                             # Image keys the workflow takes, via mapping or {{placeholder}}
                             mapped_img_keys = [k for k in spec["map"] if IMAGE_KEY.match(k)]
                             mapped_img_keys += [k for k in PLACEHOLDER.findall(json.dumps(templates[wf_rel]))
@@ -978,7 +994,8 @@ def execute(cfg, prompts, opts, emit, stop=None):
             for rel in input_src.values():
                 inputs.ensure(rel)
             pid = submit(server, wf, client_id)
-            entry = wait_for(server, pid, timeout)
+            emit("queued", prompt_id=pid)
+            entry = wait_for(server, pid, timeout, abort)
             images = collect_images(entry)
             texts = collect_texts(entry)
             if not images:
@@ -1067,6 +1084,8 @@ class Runner:
         self.config_path, self.prompts_path = config_path, prompts_path
         self.lock = threading.Lock()
         self.stop = threading.Event()
+        self.abort = threading.Event()
+        self.prompt_id = None
         self.thread = None
         self.log = deque(maxlen=400)
         self.recent = deque(maxlen=12)
@@ -1096,6 +1115,8 @@ class Runner:
             if ev == "plan":
                 st["total"] = d["total"]
                 self._log("info", f"{d['total']} jobs planned")
+            elif ev == "queued":
+                self.prompt_id = d["prompt_id"]
             elif ev == "warn":
                 self._log("warn", d["msg"])
             elif ev == "skip":
@@ -1132,6 +1153,8 @@ class Runner:
             cfg, prompts = load_all(self.config_path, self.prompts_path)
             self.server = resolve_server(cfg)
             self.stop.clear()
+            self.abort.clear()
+            self.prompt_id = None
             self.log.clear()
             self.recent.clear()
             self.st = {"state": "running", "started": now(), "total": 0, "done": 0, "skipped": 0, "failed": 0,
@@ -1142,7 +1165,7 @@ class Runner:
 
     def _run(self, cfg, prompts, opts):
         try:
-            summary = execute(cfg, prompts, opts, self.emit, self.stop)
+            summary = execute(cfg, prompts, opts, self.emit, self.stop, self.abort)
             with self.lock:
                 self.st["state"] = ("error" if self.st.get("abort_error") else "stopped") if summary["stopped"] else "done"
                 self._log("info", f"Done: {summary['done']} generated, {summary['skipped']} skipped, "
@@ -1164,11 +1187,10 @@ class Runner:
         with self.lock:
             self.st["state"] = "stopping"
             self._log("info", "Aborting …" if hard else "Stopping after the current image …")
-        if hard and self.server:
-            try:
-                requests.post(f"{self.server}/interrupt", timeout=5)
-            except requests.RequestException:
-                pass
+        if hard:
+            self.abort.set()
+            if self.server and self.prompt_id:
+                cancel(self.server, self.prompt_id)
 
 
 def plan_run(config_path, prompts_path, opts):

@@ -146,6 +146,7 @@ python bench.py run [options]                          # generate
 python bench.py check                                  # validate all model workflows
 python bench.py import ~/ComfyUI/output --since 2026-10-01
 python bench.py report                                 # static read-only copy: results/index.html
+python -m unittest -v                                  # tests (from the repo root)
 ```
 
 `run` options:
