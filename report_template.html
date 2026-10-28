@@ -201,6 +201,19 @@ table.kv td.k{width:170px;font-family:ui-monospace,monospace;font-size:12.5px;pa
 .su-vd{border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-top:14px}
 .su-vd-list,.rn-sw-list{max-height:260px;overflow:auto;border:1px solid var(--line);border-radius:6px;padding:4px 8px;margin:8px 0}
 .rn-sw-list .rn-item small{display:inline;margin-left:6px}
+/* ---------- Dialogs ---------- */
+dialog.dlg{border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--text);padding:0;width:min(420px,calc(100vw - 32px));box-shadow:0 16px 48px rgba(0,0,0,.28)}
+dialog.dlg.wide{width:min(640px,calc(100vw - 32px))}
+dialog.dlg::backdrop{background:rgba(0,0,0,.45)}
+.dlg>form{padding:16px 18px}
+.dlg h3{margin:0 0 8px;font-size:15px}
+.dlg p{margin:0;white-space:pre-wrap}
+.dlg-l{display:flex;flex-direction:column;gap:6px}
+.dlg input[type=text],.dlg select{font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;width:100%}
+.dlg input[type=text]:focus,.dlg select:focus{outline:2px solid var(--accent-bg);border-color:var(--accent)}
+.dlg-err{color:var(--err);font-size:12.5px;min-height:1.3em;margin-top:6px}
+.dlg-btns{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+.btn-d{background:var(--err);color:var(--panel);border-color:var(--err)}
 @media (max-width:900px){.su,.su-cols{grid-template-columns:1fr}.su-nav,.su-list{position:static}.inp{grid-template-columns:1fr 1fr}.inp .v{display:none}}
 </style>
 </head>
@@ -248,6 +261,41 @@ const S = Object.assign({view:"grid", axis:"model", sub:"none", seed:"", cat:"",
 const save = () => ls.set("state", S);
 const fileUrl = r => (STATIC ? "" : "files/") + r.split("/").map(encodeURIComponent).join("/");
 function toast(t){ const el=$("#toast"); el.textContent=t; el.style.display="block"; clearTimeout(toast.t); toast.t=setTimeout(()=>el.style.display="none",1800); }
+
+// ---------------------------------------------------------- Dialogs
+// In-app replacements for confirm()/prompt(). [data-close] buttons cancel, a backdrop click too.
+function uiDialog(html, {wide = false} = {}){
+  const d = document.createElement("dialog"); d.className = "dlg" + (wide ? " wide" : ""); d.innerHTML = html;
+  let downOnBackdrop = false;  // ignore text-selection drags that end on the backdrop
+  d.addEventListener("mousedown", e => downOnBackdrop = e.target === d);
+  d.addEventListener("click", e => { if((e.target === d && downOnBackdrop) || e.target.closest("[data-close]")) d.close(); });
+  d.addEventListener("close", () => d.remove());
+  document.body.append(d); d.showModal(); return d;
+}
+function uiConfirm(msg, {title = "", ok = "OK", danger = false} = {}){
+  return new Promise(res => {
+    const d = uiDialog(`<form method="dialog">${title ? `<h3>${esc(title)}</h3>` : ""}<p>${esc(msg)}</p>
+      <div class="dlg-btns"><button type="button" data-close>Cancel</button><button value="ok" class="${danger ? "btn-d" : "btn-p"}" autofocus>${esc(ok)}</button></div></form>`);
+    d.addEventListener("close", () => res(d.returnValue === "ok"));
+  });
+}
+// Resolves to the trimmed value, or null when cancelled. validate(v) returns an error message or "".
+function uiPrompt(label, {value = "", placeholder = "", ok = "OK", validate} = {}){
+  return new Promise(res => {
+    const d = uiDialog(`<form method="dialog"><label class="dlg-l">${esc(label)}<input type="text" value="${esc(value)}" placeholder="${esc(placeholder)}" autocomplete="off" spellcheck="false"></label>
+      <div class="dlg-err"></div><div class="dlg-btns"><button type="button" data-close>Cancel</button><button value="ok" class="btn-p">${esc(ok)}</button></div></form>`);
+    const inp = d.querySelector("input"), err = d.querySelector(".dlg-err");
+    inp.select(); inp.oninput = () => err.textContent = "";
+    d.querySelector("form").addEventListener("submit", e => {
+      const v = inp.value.trim(), msg = v ? (validate && validate(v)) || "" : "Please enter a value";
+      if(msg){ e.preventDefault(); err.textContent = msg; inp.focus(); }
+    });
+    d.addEventListener("close", () => res(d.returnValue === "ok" ? inp.value.trim() : null));
+  });
+}
+// Validator factory for names/IDs: pattern + human description + optional "taken" check
+const nameRule = (re, what, taken) => v => !re.test(v) ? `${what} only` : taken && taken(v) ? `"${v}" already exists` : "";
+const RE_NAME = /^\w+$/, RE_ID = /^[\w.-]+$/;
 
 let byCell, byId, modelMap, promptMap, loraCombos = [];
 const ck = (m,p,v,s) => [m,p,v,s].join("\u0001");
@@ -681,7 +729,7 @@ function setNote(id, text){
 // ---------------------------------------------------------- Delete
 async function deleteGeneration(id){
   if(STATIC){ toast("Deleting only works via bench.py serve"); return; }
-  if(!confirm("Really delete this image? The file and entry will be removed permanently.")) return;
+  if(!await uiConfirm("The image file and its entry will be removed permanently.", {title: "Delete this image?", ok: "Delete", danger: true})) return;
   try{
     const res = await fetch("api/delete", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({id})});
     if(!res.ok) throw 0;
@@ -752,7 +800,7 @@ window.addEventListener("hashchange", applyHash);
 window.addEventListener("popstate", applyHash);
 window.addEventListener("resize", syncGridView);
 document.addEventListener("keydown", e => {
-  if(!$("#lb").classList.contains("open")) return;
+  if(!$("#lb").classList.contains("open") || $("dialog[open]")) return;
   if(e.key === "Escape"){ e.target.blur && e.target.blur(); closeLb(); return; }
   if(e.target.tagName === "TEXTAREA") return;
   if(e.key === "ArrowRight" || e.key === "ArrowLeft"){
@@ -783,7 +831,7 @@ function keepFocus(fn){
 }
 const SU = { data: null, cfg: null, doc: null, dirty: {config: false, prompts: false},
   sec: S.suSec || "models", model: null, mode: "txt2img", prompt: null, analysis: {}, check: null,
-  error: "", info: "", nodeQ: "", allNodes: false, pq: "", tmplModal: null, varDlg: null };
+  error: "", info: "", nodeQ: "", allNodes: false, pq: "", varDlg: null };
 const clone = o => JSON.parse(JSON.stringify(o));
 
 // ---- Option lists from ComfyUI (checkpoints, samplers, LoRA files …), see api/comfy/options ----
@@ -1032,7 +1080,7 @@ async function uploadWorkflow(){
   try {
     let r;
     try { r = await send(false); }
-    catch(e){ if(/already exists/.test(e.message) && confirm(e.message + "\nOverwrite?")) r = await send(true); else throw e; }
+    catch(e){ if(/already exists/.test(e.message) && await uiConfirm(e.message, {title: "Overwrite file?", ok: "Overwrite"})) r = await send(true); else throw e; }
     SU.data.files.workflows = [...new Set([...SU.data.files.workflows, r.path])].sort();
     delete SU.analysis[r.path];
     return r.path;
@@ -1045,7 +1093,7 @@ async function uploadInput(){
   try {
     let r;
     try { r = await send(false); }
-    catch(e){ if(/already exists/.test(e.message) && confirm(e.message + "\nOverwrite?")) r = await send(true); else throw e; }
+    catch(e){ if(/already exists/.test(e.message) && await uiConfirm(e.message, {title: "Overwrite file?", ok: "Overwrite"})) r = await send(true); else throw e; }
     SU.data.files.inputs = [...new Set([...SU.data.files.inputs, r.path])].sort();
     return r.path;
   } catch(e){ suErr(e.message); return null; }
@@ -1395,17 +1443,17 @@ function suGeneral(){
     ${kvTable("cfg", ["defaults"], SU.cfg.defaults || {})}</div>`;
 }
 
-// ---- Template Modal Functions ----
+// ---- Template dialogs ----
 function showTemplateModal(){
   const tmpls = allTemplates();
   const builtin = Object.keys(BUILTIN_TEMPLATES);
   const custom = Object.keys(tmpls).filter(k => !builtin.includes(k));
-  const html = `
+  const d = uiDialog(`<form method="dialog">
     <h3>Create prompt from template</h3>
     <p class="hint">Choose a template, enter an ID and create the prompt.</p>
-    <div class="su-grid" style="margin-top:8px">
+    <div class="su-grid" style="margin-top:12px">
       <label>Template</label>
-      <select id="tmpl-select" style="width:100%">
+      <select id="tmpl-select">
         <optgroup label="Built-in templates">
           ${builtin.map(k => `<option value="${esc(k)}">${esc(tmpls[k].name)} (${esc(tmpls[k].category || "–")})</option>`).join("")}
         </optgroup>
@@ -1414,53 +1462,36 @@ function showTemplateModal(){
         </optgroup>` : ""}
       </select>
       <label>Prompt-ID</label>
-      <input type="text" id="tmpl-prompt-id" placeholder="e.g. my-portrait" style="width:100%">
+      <input type="text" id="tmpl-prompt-id" placeholder="e.g. my-portrait" autocomplete="off" autofocus>
       <label>Category</label>
-      <input type="text" id="tmpl-category" list="su-cats" placeholder="optional" style="width:100%"><datalist id="su-cats">${[...new Set(SU.doc.prompts.map(x => x.category).filter(Boolean))].map(c => `<option>${esc(c)}</option>`).join("")}</datalist>
+      <input type="text" id="tmpl-category" list="su-cats" placeholder="optional"><datalist id="su-cats">${[...new Set(SU.doc.prompts.map(x => x.category).filter(Boolean))].map(c => `<option>${esc(c)}</option>`).join("")}</datalist>
     </div>
-    <div id="tmpl-preview" class="prev" style="margin-top:8px"></div>
-    <div class="row" style="margin-top:12px;justify-content:flex-end">
-      <button class="btn-p" onclick="createFromTemplate()">Create</button>
-      <button onclick="closeTmplModal()">Cancel</button>
-    </div>
-  `;
-  SU.tmplModal = html;
-  keepFocus(suRender);
-  // Update the preview on selection
-  setTimeout(() => {
-    const sel = $("#tmpl-select"), pid = $("#tmpl-prompt-id"), cat = $("#tmpl-category");
-    const update = () => { const t = tmpls[sel.value]; const p = promptFromTemplate(t, pid.value || ""); $("#tmpl-preview").innerHTML = suPreview(p); cat.value = t.category || ""; };
-    sel.onchange = update; pid.oninput = update; cat.oninput = () => {};
-    update();
-  }, 0);
+    <div class="dlg-err"></div>
+    <div id="tmpl-preview" class="prev"></div>
+    <div class="dlg-btns"><button type="button" data-close>Cancel</button><button value="ok" class="btn-p">Create</button></div>
+  </form>`, {wide: true});
+  const sel = d.querySelector("#tmpl-select"), pid = d.querySelector("#tmpl-prompt-id"), cat = d.querySelector("#tmpl-category"), err = d.querySelector(".dlg-err");
+  const update = () => { const t = tmpls[sel.value]; d.querySelector("#tmpl-preview").innerHTML = suPreview(promptFromTemplate(t, pid.value || "")); };
+  sel.onchange = () => { cat.value = tmpls[sel.value].category || ""; update(); };
+  pid.oninput = () => { err.textContent = ""; update(); };
+  sel.onchange();
+  d.querySelector("form").addEventListener("submit", e => {
+    const id = pid.value.trim(), msg = id ? nameRule(RE_ID, "Letters, digits, - _ .", v => SU.doc.prompts.some(x => x.id === v))(id) : "Please enter a prompt ID";
+    if(msg){ e.preventDefault(); err.textContent = msg; pid.focus(); return; }
+    const tmpl = tmpls[sel.value], newPrompt = promptFromTemplate(tmpl, id);
+    newPrompt.category = cat.value.trim() || tmpl.category || "";
+    SU.doc.prompts.push(newPrompt); SU.prompt = id; markDirty("prompts"); suRender();
+  });
 }
 
-function closeTmplModal(){
-  SU.tmplModal = null;
-  keepFocus(suRender);
-}
-
-function createFromTemplate(){
-  const sel = $("#tmpl-select"), pid = $("#tmpl-prompt-id"), cat = $("#tmpl-category");
-  const id = pid.value.trim();
-  if(!id){ suErr("Please enter a prompt ID"); return; }
-  if(!/^[\w.-]+$/.test(id) || SU.doc.prompts.some(x => x.id === id)){ suErr("Invalid ID or already taken"); return; }
-  const tmpl = allTemplates()[sel.value];
-  const newPrompt = promptFromTemplate(tmpl, id);
-  newPrompt.category = cat.value.trim() || tmpl.category || "";
-  SU.doc.prompts.push(newPrompt);
-  SU.prompt = id;
-  markDirty("prompts");
-  closeTmplModal();
-  suRender();
-}
-
-function saveCurrentAsTemplate(p){
+async function saveCurrentAsTemplate(p){
   if(!p){ suErr("No prompt selected"); return; }
-  const name = (prompt("Template name (e.g. My Portraits):") || "").trim();
+  const name = await uiPrompt("Template name", {value: p.id, placeholder: "e.g. My Portraits", ok: "Save template"});
   if(!name){ return; }
   const key = name.toLowerCase().replace(/[^\w]+/g, "-").replace(/^-|-$/g, "");
-  const tmpl = {
+  const custom = loadTemplates();
+  if(custom[key] && !await uiConfirm(`A custom template "${custom[key].name}" already exists.`, {title: "Replace template?", ok: "Replace"})) return;
+  custom[key] = {
     name, category: p.category || "",
     prompt: p.prompt, negative: p.negative,
     vars: p.vars || {}, vary: p.vary || "product",
@@ -1468,57 +1499,35 @@ function saveCurrentAsTemplate(p){
     check: p.check || "",
     params: p.params || {}, model_params: p.model_params || {}
   };
-  const custom = loadTemplates();
-  custom[key] = tmpl;
   saveTemplates(custom);
-  SU.info = `Template "${name}" saved.`;
-  keepFocus(suRender);
+  toast(`Template "${name}" saved`);
 }
 
 function showTemplateManager(){
-  const custom = loadTemplates();
-  const html = `
+  const d = uiDialog(`<form method="dialog">
     <h3>Manage templates</h3>
     <p class="hint">Built-in templates cannot be deleted. Custom templates are stored in the browser.</p>
-    ${Object.entries(custom).length === 0 ? `<p class="hint">No custom templates yet.</p>` : `
-      <table class="kv" style="margin-top:8px">
-        ${Object.entries(custom).map(([k, t]) => `<tr>
-          <td class="k">${esc(t.name)} <span class="hint">(${esc(k)})</span></td>
-          <td>${esc(t.category || "–")}</td>
-          <td style="width:80px"><button class="x" data-act="del-tmpl" data-key="${esc(k)}" title="Delete">✕</button></td>
-        </tr>`).join("")}
-      </table>
-    `}
-    <div class="row" style="margin-top:12px;justify-content:flex-end">
-      <button onclick="closeTmplModal()">Close</button>
-    </div>
-  `;
-  SU.tmplModal = html;
-  keepFocus(suRender);
-  setTimeout(() => {
-    document.querySelectorAll("[data-act=del-tmpl]").forEach(b => {
-      b.onclick = () => {
-        if(confirm(`Delete template "${b.dataset.key}"?`)){
-          const custom = loadTemplates();
-          delete custom[b.dataset.key];
-          saveTemplates(custom);
-          SU.info = "Template deleted.";
-          showTemplateManager();
-        }
-      };
-    });
-  }, 0);
+    <div id="tmpl-list" style="margin-top:8px"></div>
+    <div class="dlg-btns"><button value="" autofocus>Close</button></div>
+  </form>`, {wide: true});
+  const list = d.querySelector("#tmpl-list");
+  const render = () => {
+    const custom = Object.entries(loadTemplates());
+    list.innerHTML = !custom.length ? `<p class="hint">No custom templates yet.</p>` : `<table class="kv">
+      ${custom.map(([k, t]) => `<tr>
+        <td class="k">${esc(t.name)} <span class="hint">(${esc(k)})</span></td>
+        <td>${esc(t.category || "–")}</td>
+        <td style="width:40px"><button type="button" class="x" data-key="${esc(k)}" title="Delete">✕</button></td>
+      </tr>`).join("")}</table>`;
+  };
+  list.addEventListener("click", async e => {
+    const b = e.target.closest("[data-key]"); if(!b) return;
+    const custom = loadTemplates(), t = custom[b.dataset.key];
+    if(!await uiConfirm("It is removed from this browser.", {title: `Delete template "${t.name}"?`, ok: "Delete", danger: true})) return;
+    delete custom[b.dataset.key]; saveTemplates(custom); render(); toast("Template deleted");
+  });
+  render();
 }
-
-// Render hook for the modal in suRender
-const originalSuRender = suRender;
-suRender = function(){
-  originalSuRender();
-  if(SU.tmplModal){
-    const main = $("#setup .su-main") || $("#setup section.su-main");
-    if(main) main.innerHTML = SU.tmplModal;
-  }
-};
 
 // ---------------------------------------------------------------- Events
 function suWhich(root){ return root === "cfg" ? "config" : "prompts"; }
@@ -1568,8 +1577,8 @@ document.addEventListener("change", async e => {
   }
   if(el.dataset.map !== undefined){
     const t = el.dataset.map; let key = el.value;
-    if(key === "__new"){ key = (prompt("Value name (letters, digits, _):") || "").trim();
-      if(!/^\w+$/.test(key)){ keepFocus(suRender); return; } }
+    if(key === "__new"){ key = await uiPrompt("New value name", {placeholder: "e.g. steps", ok: "Add", validate: nameRule(RE_NAME, "Letters, digits and _")});
+      if(!key){ keepFocus(suRender); return; } }
     const sp = specOf(m, SU.mode);
     for(const k of Object.keys(sp.map)){ const l = asList(sp.map[k]).filter(x => x !== t); if(l.length) sp.map[k] = l; else delete sp.map[k]; }
     if(key) sp.map[key] = [...asList(sp.map[key]), t];
@@ -1613,20 +1622,17 @@ document.addEventListener("click", async e => {
   switch(act){
     case "save": return suSave();
     case "check": return suRunCheck(false);
-    case "discard": if(confirm("Discard all unsaved changes?")) await suLoad(); return;
+    case "discard": if(await uiConfirm("All unsaved changes to config and prompts are lost.", {title: "Discard changes?", ok: "Discard", danger: true})) await suLoad(); return;
     case "add-model": {
-      const id = (prompt("Model ID (e.g. flux-dev):") || "").trim(); if(!id) return;
-      if(!/^[\w.-]+$/.test(id) || SU.cfg.models[id]) return suErr("Invalid ID or already taken");
+      const id = await uiPrompt("Model ID", {placeholder: "e.g. flux-dev", ok: "Add model", validate: nameRule(RE_ID, "Letters, digits, - _ .", v => SU.cfg.models[v])}); if(!id) return;
       SU.cfg.models[id] = {label: id, params: {}}; SU.model = id; SU.mode = "txt2img"; markDirty("config"); return suRender();
     }
-    case "del-model": if(confirm(`Delete model ${SU.model} from the config? Generated images stay in the gallery.`)){ delete SU.cfg.models[SU.model]; SU.model = Object.keys(SU.cfg.models)[0] || null; markDirty("config"); suRender(); } return;
+    case "del-model": if(await uiConfirm("It is removed from the config. Generated images stay in the gallery.", {title: `Delete model ${SU.model}?`, ok: "Delete model", danger: true})){ delete SU.cfg.models[SU.model]; SU.model = Object.keys(SU.cfg.models)[0] || null; markDirty("config"); suRender(); } return;
     case "toggle-enabled": if(el.checked) delete m.enabled; else m.enabled = false; markDirty("config"); return suRender();
     case "co-refresh": await loadComfyOptions(true); toast(CO.data.ok ? "Lists reloaded from ComfyUI" : CO.data.error); return suRender();
     case "lora-add": {
-      const n = (prompt("Short name of the LoRA (e.g. style, detail):") || "").trim(); if(!n) return;
-      if(!/^\w+$/.test(n)) return suErr("Name: letters, digits, _ only");
+      const n = await uiPrompt("Short name of the LoRA", {placeholder: "e.g. style, detail", ok: "Add LoRA", validate: nameRule(RE_NAME, "Letters, digits and _", v => m.loras && m.loras[v])}); if(!n) return;
       m.loras = m.loras || {};
-      if(m.loras[n]) return suErr(`LoRA ${n} already exists`);
       m.loras[n] = {name: "", default_strength: 0.8}; markDirty("config"); return suRender();
     }
     case "lora-del": delete m.loras[el.dataset.lora]; if(!Object.keys(m.loras).length) delete m.loras; markDirty("config"); return suRender();
@@ -1652,21 +1658,19 @@ document.addEventListener("click", async e => {
       return suRender();
     }
     case "add-mode": {
-      const mode = (prompt("Mode (e.g. img2img, inpaint):", "img2img") || "").trim(); if(!mode) return;
-      if(!/^\w+$/.test(mode)) return suErr("Mode: letters, digits, _ only");
+      const mode = await uiPrompt("Mode", {value: "img2img", placeholder: "e.g. img2img, inpaint", ok: "Add mode", validate: nameRule(RE_NAME, "Letters, digits and _")}); if(!mode) return;
       if(!specOf(m, mode)){ if(mode === "txt2img") m.workflow = {file: "", map: {}}; else { m.workflows = m.workflows || {}; m.workflows[mode] = {file: "", map: {}}; } }
       SU.mode = mode; markDirty("config"); return suRender();
     }
-    case "del-mode": if(confirm(`Remove the workflow for ${el.dataset.mode}?`)){ setSpec(m, el.dataset.mode, null); markDirty("config"); suRender(); } return;
+    case "del-mode": if(await uiConfirm("Its workflow and input mapping are removed from this model.", {title: `Remove mode ${el.dataset.mode}?`, ok: "Remove", danger: true})){ setSpec(m, el.dataset.mode, null); markDirty("config"); suRender(); } return;
     case "map-mode": SU.mode = el.dataset.mode; suRender(); return;
     case "apply-sugg": applySuggestions(m, SU.mode, false); markDirty("config"); SU.info = "Suggestions applied."; return suRender();
-    case "clear-map": if(confirm("Clear the mapping for this mode?")){ const sp = specOf(m, SU.mode); sp.map = {}; setSpec(m, SU.mode, sp); markDirty("config"); suRender(); } return;
+    case "clear-map": if(await uiConfirm(`All input mappings for ${SU.mode} are removed.`, {title: "Clear mapping?", ok: "Clear", danger: true})){ const sp = specOf(m, SU.mode); sp.map = {}; setSpec(m, SU.mode, sp); markDirty("config"); suRender(); } return;
     case "fill-missing": { const sp = specOf(m, SU.mode); fillFromWorkflow(m, SU.mode, Object.keys(sp.map).filter(k => !hasValue(m, k))); markDirty("config"); return suRender(); }
     case "all-nodes": SU.allNodes = el.checked; return suRender();
     case "kv-add": {
-      const k = (prompt("Name (e.g. steps, cfg, sampler):") || "").trim(); if(!k) return;
-      if(!/^\w+$/.test(k)) return suErr("Name: letters, digits, _ only");
       const path = JSON.parse(el.dataset.path), root = rootOf(el.dataset.root);
+      const k = await uiPrompt("Parameter name", {placeholder: "e.g. steps, cfg, sampler", ok: "Add", validate: nameRule(RE_NAME, "Letters, digits and _")}); if(!k) return;
       if(getAt(root, [...path, k]) === undefined) setAt(root, [...path, k], "");
       markDirty(suWhich(el.dataset.root)); return suRender();
     }
@@ -1675,8 +1679,7 @@ document.addEventListener("click", async e => {
       if(parent && !Object.keys(parent).length) setAt(rootOf(el.dataset.root), path.slice(0, -1), undefined);
       markDirty(suWhich(el.dataset.root)); return suRender(); }
     case "add-prompt": {
-      const id = (prompt("ID of the new prompt (e.g. hands-piano):") || "").trim(); if(!id) return;
-      if(!/^[\w.-]+$/.test(id) || SU.doc.prompts.some(x => x.id === id)) return suErr("Invalid ID or already taken");
+      const id = await uiPrompt("ID of the new prompt", {placeholder: "e.g. hands-piano", ok: "Add prompt", validate: nameRule(RE_ID, "Letters, digits, - _ .", v => SU.doc.prompts.some(x => x.id === v))}); if(!id) return;
       SU.doc.prompts.push({id, category: p ? p.category : "", prompt: ""}); SU.prompt = id; markDirty("prompts"); return suRender();
     }
     case "add-prompt-tmpl": return showTemplateModal();
@@ -1686,7 +1689,7 @@ document.addEventListener("click", async e => {
       let id = p.id + "-copy", n = 2; while(SU.doc.prompts.some(x => x.id === id)) id = `${p.id}-copy${n++}`;
       const c = clone(p); c.id = id; SU.doc.prompts.splice(SU.doc.prompts.indexOf(p) + 1, 0, c); SU.prompt = id; markDirty("prompts"); return suRender();
     }
-    case "del-prompt": if(confirm(`Delete prompt ${p.id}? Generated images stay in the gallery.`)){ const i = SU.doc.prompts.indexOf(p); SU.doc.prompts.splice(i, 1); SU.prompt = (SU.doc.prompts[i] || SU.doc.prompts[i-1] || {}).id; markDirty("prompts"); suRender(); } return;
+    case "del-prompt": if(await uiConfirm("Generated images stay in the gallery.", {title: `Delete prompt ${p.id}?`, ok: "Delete prompt", danger: true})){ const i = SU.doc.prompts.indexOf(p); SU.doc.prompts.splice(i, 1); SU.prompt = (SU.doc.prompts[i] || SU.doc.prompts[i-1] || {}).id; markDirty("prompts"); suRender(); } return;
     case "add-var": { p.vars = p.vars || {}; let n = "var", k = 2; while(n in p.vars) n = "var" + k++; p.vars[n] = []; markDirty("prompts"); return suRender(); }
     case "del-var": delete p.vars[el.dataset.var]; if(!Object.keys(p.vars).length){ delete p.vars; delete p.vary; } markDirty("prompts"); return suRender();
     case "add-set": { let n = "set", k = 2; while(n in SU.doc.vars) n = "set" + k++; SU.doc.vars[n] = []; markDirty("prompts"); return suRender(); }
@@ -2117,7 +2120,7 @@ document.addEventListener("click", async e => {
     return;
   }
   else if(act === "stop" || act === "kill"){
-    if(act === "kill" && !confirm("Abort the current image in ComfyUI and end the run?")) return;
+    if(act === "kill" && !await uiConfirm("The current image in ComfyUI is aborted and the run ends.", {title: "Abort run?", ok: "Abort run", danger: true})) return;
     try { RN.status = await api("POST", "api/run/stop", {hard: act === "kill"}); rnStatusRender(); rnPoll(); } catch(err){ toast(err.message); }
     return;
   }
