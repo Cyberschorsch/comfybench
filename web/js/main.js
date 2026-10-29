@@ -86,8 +86,8 @@ function App(){
     </header>
     <main id="view-grid" class="${view === "grid" ? "on" : ""}">${html`<${VIEWS.grid}/>`}</main>
     <main id="view-gallery" class="${view === "gallery" ? "on" : ""}">${html`<${VIEWS.gallery}/>`}</main>
-    <main id="view-run" class="${view === "run" ? "on" : ""}">${html`<${VIEWS.run}/>`}</main>
-    <main id="view-setup" class="${view === "setup" ? "on" : ""}">${html`<${VIEWS.setup}/>`}</main>
+    <main id="view-run" class="${view === "run" ? "on" : ""}">${view === "run" ? html`<${VIEWS.run}/>` : null}</main>
+    <main id="view-setup" class="${view === "setup" ? "on" : ""}">${view === "setup" ? html`<${VIEWS.setup}/>` : null}</main>
     <${Toast}/>
     <${Lightbox}/>
   `;

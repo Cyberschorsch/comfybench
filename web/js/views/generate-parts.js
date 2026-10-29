@@ -252,7 +252,7 @@ export function rnImageInputsSec(){
       <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center">
         <select data-rn-img=${f.prompt} data-rn-img-key=${f.key} style="flex:1;min-width:200px" value=${val} onChange=${e => onImgChange(f.prompt, f.key, e.currentTarget.value, e.currentTarget)}>
           <option value="">– select –</option><option value="__upload">📤 Upload …</option>
-          ${inputs.length ? html`<optgroup label="From inputs">${inputs.map(x => html`<option>${x}</option>`)}</optgroup>` : ""}
+          ${inputs.length ? html`<optgroup label="From inputs/">${inputs.map(x => html`<option>${x}</option>`)}</optgroup>` : ""}
           ${genOpts.length ? html`<optgroup label="Previous generations">${genOpts.map(g => html`<option value="gen:${g.id}">${g.id.slice(0,8)} · ${mLabel(g.model)} · ${g.prompt.slice(0,30)}</option>`)}</optgroup>` : ""}
         </select>
         <span class="hint" style="flex:1 1 100%;font-size:11px">${f.value || "no default"}</span>
