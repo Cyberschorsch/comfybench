@@ -3,8 +3,8 @@ import {keyOf, shortVal, dimLabel} from "cb/util.js";
 import {fileUrl} from "cb/api.js";
 
 // ------------------------------------------------------------------ Compare grid: pure calculation
-// Mirrors report_template.html:fillControls() (:405-442) and renderGrid() (:484-577),
-// returning data instead of HTML. normalizeGridCfg() mutates gridCfg() and is idempotent.
+// Pure calculation behind the compare grid: returns data instead of HTML.
+// normalizeGridCfg() mutates gridCfg() and is idempotent.
 
 export function normalizeGridCfg(){
   const cfg = gridCfg(), focus = focusId();

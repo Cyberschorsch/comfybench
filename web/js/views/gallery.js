@@ -8,7 +8,7 @@ const MIN_OPTS = ["0", "1", "2", "3", "4", "5"];
 const MIN_LABEL = ["all", "★", "★★", "★★★", "★★★★", "★★★★★"];
 
 // ------------------------------------------------------------------ Gallery view
-// Filter / sort / 600er-Limit like report_template.html:636-652.
+// Filter / sort / 600er-Limit.
 // Steuerelemente wie :241-245, als kontrollierte Selects/Inputs auf state.ui.
 export function Gallery(){
   const d = state.data || {generations: [], ratings: {}};

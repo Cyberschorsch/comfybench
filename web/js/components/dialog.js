@@ -19,7 +19,7 @@ export async function uiDialog(renderFn, {wide = false} = {}){
   });
 }
 export function uiConfirm(msg, {title = "", ok = "OK", danger = false} = {}){
-  // Confirm: texts/classes/markup like report_template.html:279-285.
+  // Confirm dialog: title, message and a Cancel/OK button pair.
   return uiDialog(close => html`
     <form method="dialog">
       ${title ? html`<h3>${title}</h3>` : ""}
@@ -33,7 +33,7 @@ export function uiConfirm(msg, {title = "", ok = "OK", danger = false} = {}){
 }
 
 // Prompt: resolves with the trimmed value, or null when cancelled.
-// validate(v) returns an error message or "" (like report_template.html:287-299).
+// validate(v) returns an error message or "".
 export function uiPrompt(label, {value = "", placeholder = "", ok = "OK", validate} = {}){
   let inputEl = null, errEl = null, result = "";
   const p = uiDialog(close => html`
@@ -53,7 +53,7 @@ export function uiPrompt(label, {value = "", placeholder = "", ok = "OK", valida
       </div>
     </form>
   `);
-  // Select the input text when the dialog opens (like report_template.html:292).
+  // Select the input text when the dialog opens.
   if(inputEl) inputEl.select();
   return p.then(ret => ret === "ok" ? result : null);
 }

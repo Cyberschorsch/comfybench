@@ -2012,9 +2012,6 @@ def make_handler(args, runner) -> type[BaseHTTPRequestHandler]:
             path = unquote(urlparse(self.path).path)
             if path in ("/", "/index.html"):
                 return self.send(200, build_html(), "text/html; charset=utf-8")
-            if path == "/legacy":
-                return self.send(200, (CODE / "report_template.html").read_text(encoding="utf-8"),
-                                 "text/html; charset=utf-8")
             if path.startswith("/static/"):
                 rest = path[len("/static/"):]
                 f = (WEB / rest).resolve()

@@ -547,11 +547,6 @@ class T_static_route(unittest.TestCase):
         self.assertEqual(code, 200)
         self.assertIn('type="importmap"', body)
 
-    def test_legacy(self):
-        code, _, body = self.get("/legacy")
-        self.assertEqual(code, 200)
-        self.assertIn("const EMBED", body)
-
 
 if __name__ == "__main__":
     unittest.main()
