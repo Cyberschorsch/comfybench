@@ -1,10 +1,15 @@
 """Unit tests for bench.py – run with: python3 -m unittest -v"""
+import argparse
+import base64
 import json
 import os
 import re
 import shutil
 import tempfile
+import threading
 import unittest
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 os.environ.pop("COMFYBENCH_HOME", None)  # before importing bench: ROOT = repo dir
@@ -445,6 +450,102 @@ class T_import_civitai(unittest.TestCase):
         self.assertTrue(res["prompt_added"])
         self.assertEqual([p["id"] for p in self.prompts_doc()["prompts"]],
                          ["civitai-12097475", "second-name"])
+
+
+class T_build_html(unittest.TestCase):
+    def test_serve_variant_is_index(self):
+        self.assertEqual(bench.build_html(), (bench.WEB / "index.html").read_text(encoding="utf-8"))
+
+    def test_report_self_contained(self):
+        out = bench.build_html({"x": 1})
+        self.assertNotIn("static/", out)
+        self.assertIn("<style>", out)
+        self.assertIn('window.CB_EMBED = {"x": 1};', out)
+
+    def test_every_module_embedded(self):
+        out = bench.build_html({})
+        imap = json.loads(re.search(r'<script type="importmap">(.*?)</script>', out, re.S).group(1))["imports"]
+        files = sorted((bench.WEB / "js").rglob("*.js"))
+        self.assertEqual(sorted(imap), sorted("cb/" + f.relative_to(bench.WEB / "js").as_posix() for f in files))
+        for f in files:
+            url = imap["cb/" + f.relative_to(bench.WEB / "js").as_posix()]
+            self.assertTrue(url.startswith("data:text/javascript;base64,"))
+            self.assertEqual(base64.b64decode(url.split(",", 1)[1]).decode("utf-8"), f.read_text(encoding="utf-8"))
+
+    def test_payload_escaped(self):
+        out = bench.build_html({"t": "</script><b>äö 🙂"})
+        self.assertNotIn("</script><b>", out)
+        self.assertIn("äö 🙂", out)
+
+    def test_missing_marker(self):
+        # build_html takes the index text from _read_index(); patch it to drop the CSS marker
+        orig = bench._read_index
+        bench._read_index = lambda: orig().replace(bench.CSS_MARK, "")
+        try:
+            with self.assertRaises(BenchError):
+                bench.build_html({})
+        finally:
+            bench._read_index = orig
+
+    def test_non_ascii_module(self):
+        extra = bench.WEB / "js" / "_t_äö.js"
+        extra.write_text('export const s = "ü";', encoding="utf-8")
+        try:
+            out = bench.build_html({})
+            imap = json.loads(re.search(r'<script type="importmap">(.*?)</script>', out, re.S).group(1))["imports"]
+            url = imap["cb/" + extra.relative_to(bench.WEB / "js").as_posix()]
+            self.assertEqual(base64.b64decode(url.split(",", 1)[1]).decode("utf-8"), extra.read_text(encoding="utf-8"))
+        finally:
+            extra.unlink(missing_ok=True)
+
+
+class T_imports(unittest.TestCase):
+    def test_specifiers_resolve(self):
+        for f in sorted((bench.WEB / "js").rglob("*.js")):
+            src = f.read_text(encoding="utf-8")
+            for m in re.findall(r'from\s+"cb/([^"]+)"', src) + re.findall(r'import\s+"cb/([^"]+)"', src):
+                self.assertTrue((bench.WEB / "js" / m).is_file(), f"{f.name}: cb/{m} not found")
+
+
+class T_static_route(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        args = argparse.Namespace(config=ROOT / "config.yaml", prompts_file=ROOT / "prompts.yaml")
+        cls.handler = bench.make_handler(args, None)
+        cls.srv = bench.ThreadingHTTPServer(("127.0.0.1", 0), cls.handler)
+        cls.thread = threading.Thread(target=cls.srv.serve_forever, daemon=True)
+        cls.thread.start()
+        cls.port = cls.srv.server_address[1]
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.srv.shutdown()
+        cls.srv.server_close()
+
+    def get(self, path):
+        with urllib.request.urlopen(f"http://127.0.0.1:{self.port}{path}", timeout=5) as r:
+            return r.status, r.headers.get("Content-Type", ""), r.read().decode("utf-8", "replace")
+
+    def test_static_js(self):
+        code, ctype, _ = self.get("/static/js/main.js")
+        self.assertEqual(code, 200)
+        self.assertTrue(ctype.startswith("text/javascript"))
+
+    def test_static_css(self):
+        code, ctype, _ = self.get("/static/app.css")
+        self.assertEqual(code, 200)
+        self.assertTrue(ctype.startswith("text/css"))
+
+    def test_static_traversal(self):
+        for p in ("/static/../bench.py", "/static/%2e%2e/bench.py"):
+            with self.assertRaises(urllib.error.HTTPError) as cm:
+                self.get(p)
+            self.assertEqual(cm.exception.code, 404)
+
+    def test_root(self):
+        code, _, body = self.get("/")
+        self.assertEqual(code, 200)
+        self.assertIn('type="importmap"', body)
 
 
 if __name__ == "__main__":

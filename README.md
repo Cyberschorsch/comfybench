@@ -186,6 +186,32 @@ python -m unittest -v                                  # tests (from the repo ro
 
 Global options `--config` and `--prompts-file` point to other files.
 
+## Frontend
+
+The UI is plain native ES modules with no build step, in `web/`:
+
+```
+web/
+  index.html              shell: favicon, app.css, import map, embedded data, module entry
+  app.css                 the stylesheet
+  js/
+    main.js               entry: loads data, renders <App>, hash routing
+    store.js api.js util.js
+    components/           dialog, toast, stars, select, field …
+    views/                compare, gallery, lightbox, generate, civitai, setup/
+    vendor/htm-preact.js  Preact + htm, vendored
+```
+
+Preact and htm are vendored in `web/js/vendor/htm-preact.js` (the standalone module build of htm 3.1.1, with the source URL and version on its first line), so nothing is installed and no bundler runs. Modules import each other through `cb/…` specifiers that a `<script type="importmap">` in `index.html` resolves to `static/js/`. To update the vendored file:
+
+```bash
+curl -sL https://unpkg.com/htm@3.1.1/preact/standalone.module.js -o web/js/vendor/htm-preact.js
+```
+
+Keep the first comment line with the source URL and version.
+
+`python bench.py report` writes one self-contained HTML file: the CSS is inlined and every module is embedded as a `data:` URL in the import map, so the report opens straight from `file://` with no server.
+
 ## Data layout
 
 ```
