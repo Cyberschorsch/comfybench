@@ -4,13 +4,13 @@ import {Toast} from "cb/components/toast.js";
 import {Gallery as GalleryView, GalleryControls as GalleryControlsView} from "cb/views/gallery.js";
 import {Compare, CompareControls} from "cb/views/compare.js";
 import {Lightbox} from "cb/views/lightbox.js";
+import {Generate as RunView, startPolling, navRunLabel} from "cb/views/generate.js";
 
 const root = document.getElementById("app");
 let loadError = null;
 
 // ------------------------------------------------------------------ views / controls
 
-function RunView(){ return html`<p>Generate view (placeholder – filled in Task 5)</p>`; }
 function SetupView(){ return html`<p>Setup view (placeholder – filled in Task 6)</p>`; }
 
 const VIEWS = {grid: Compare, gallery: GalleryView, run: RunView, setup: SetupView};
@@ -70,7 +70,7 @@ function App(){
         <nav>
           <button data-view="grid" class="${view === "grid" ? "on" : ""}" onclick=${onNav}>Compare</button>
           <button data-view="gallery" class="${view === "gallery" ? "on" : ""}" onclick=${onNav}>Gallery</button>
-          <button data-view="run" id="nav-run" class="${view === "run" ? "on" : ""}" style="${hidden}" onclick=${onNav}>Generate</button>
+          <button data-view="run" id="nav-run" class="${view === "run" ? "on" : ""}" style="${hidden}" onclick=${onNav}>${navRunLabel()}</button>
           <button data-view="setup" id="nav-setup" class="${view === "setup" ? "on" : ""}" style="${hidden}" onclick=${onNav}>Setup</button>
         </nav>
         <button id="reload" title="Reload" onclick=${onReload}>↻</button>
@@ -111,6 +111,7 @@ async function boot(){
   if(state.isStatic && (state.ui.view === "setup" || state.ui.view === "run")) state.ui.view = "grid";
   onRender(() => render(html`<${App}/>`, root));
   update();
+  if(!state.isStatic) startPolling();
 
   window.addEventListener("hashchange", applyHash);
   window.addEventListener("popstate", applyHash);

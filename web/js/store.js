@@ -10,7 +10,7 @@ export const state = {
     sec: "models", model: null, mode: "txt2img", prompt: null, analysis: {},
     check: null, error: "", info: "", nodeQ: "", allNodes: false, pq: "", varDlg: null
   },
-  run: { status: null, plan: null, planErr: "", lastDone: -1, lastReload: 0, swq: {} },
+  run: { status: null, plan: null, planErr: "", lastDone: -1, lastReload: 0, swq: {}, imgKeys: {} },
   comfy: { data: null, loading: null },
   lb: { open: false, list: [], idx: 0 },
   idx: { byCell: null, byId: null, modelMap: null, promptMap: null, loraCombos: [] },
@@ -144,7 +144,7 @@ export function loadComfyOptions(refresh){
   if(state.comfy.loading && !refresh) return state.comfy.loading;
   state.comfy.loading = api("GET", "api/comfy/options" + (refresh ? "?refresh=1" : ""))
     .catch(e => ({ok: false, error: e.message}))
-    .then(d => { state.comfy.data = d; state.comfy.loading = null; return d; });
+    .then(d => { state.comfy.data = d; state.comfy.loading = null; update(); return d; });
   return state.comfy.loading;
 }
 export const comfyOpts = (mid, key) =>
