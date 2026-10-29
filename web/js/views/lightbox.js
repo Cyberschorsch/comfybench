@@ -54,7 +54,11 @@ function Lightbox(){
   if(!open) return html`<div id="lb" class=""></div>`;
   const byId = state.idx.byId;
   const g = byId ? byId.get(state.lb.list[state.lb.idx] || "") : null;
-  if(open && !g){ closeLightbox(); return html`<div id="lb" class=""></div>`; }
+  const missing = open && !g;
+  useEffect(() => {
+    if(missing) closeLightbox();
+  }, [missing]);
+  if(missing) return html`<div id="lb" class=""></div>`;
 
   const p = state.idx.promptMap.get(g.prompt) || {};
   const vers = versionsOf(g);
@@ -77,7 +81,7 @@ function Lightbox(){
       <p class="muted">${LoraBadge({g})}${g.seed != null ? `Seed ${g.seed} · ` : ""}
         ${g.seconds != null ? g.seconds + "s · " : ""}${g.mode || "txt2img"} · ${(g.at || "").replace("T", " ")}
         ${state.lb.list.length > 1 ? ` · ${state.lb.idx + 1}/${state.lb.list.length}` : ""}</p>
-      ${ins.map(([k, f]) => html`<div class="inp"><img src=${fileUrl(f)} alt="">
+      ${ins.map(([k, f]) => html`<div class="inp"><img src=${fileUrl(f)} alt="" />
         <span class="muted">${k}: ${(g.input_src || {})[k] || ""}</span></div>`)}
       <div class="sec">${Stars({id: g.id})} <button class="del-btn" onClick=${() => deleteGeneration(g.id)} title="Delete">🗑️</button></div>
       <textarea id="note" rows="2" placeholder=${notePlaceholder} disabled=${state.isStatic}
@@ -98,7 +102,9 @@ function Lightbox(){
           ${ratingOf(x.id) ? ` ${ratingOf(x.id)}★` : ""}</button>`)}
         </div>` : ""}
       ${g.source ? html`<p class="muted">Source: ${g.source}</p>` : ""}
-      ${g.files.length > 1 ? html`<p>${g.files.map(f => html`<a style="color:#fb923c" href=${fileUrl(f)} target="_blank">${f.split("/").pop()}</a>`)}</p>` : ""}
+      ${g.files.length > 1 ? html`<p>${g.files.map((f, i) => i > 0
+        ? [html`<br/>`, html`<a style="color:#fb923c" href=${fileUrl(f)} target="_blank">${f.split("/").pop()}</a>`]
+        : html`<a style="color:#fb923c" href=${fileUrl(f)} target="_blank">${f.split("/").pop()}</a>`)}</p>` : ""}
       <p class="muted">Esc closes · ←/→ navigates${p.check ? html`<br/>🔎 ${p.check}` : ""}</p>
     </aside>
   </div>`;

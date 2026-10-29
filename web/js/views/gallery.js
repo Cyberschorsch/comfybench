@@ -48,26 +48,27 @@ export function GalleryControls(){
   const gm = [...new Set((d.generations || []).map(g => g.model))];
   const gp = [...new Set((d.generations || []).map(g => g.prompt))].sort();
   const ui = state.ui;
-  return html`<div>
-    <div><label>Model </label><select value=${ui.gModel}
+  const minOpt = (o, i) => html`<option value=${o} selected=${o === ui.gMin}>${MIN_LABEL[i]}</option>`;
+  return [
+    html`<div><label>Model </label><select id="gModel" value=${ui.gModel}
       onChange=${e => { ui.gModel = e.target.value; update(); }}>
       <option value="">all</option>${gm.map(m => html`<option value=${m} selected=${m === ui.gModel}>${mLabel(m)}</option>`)}
-    </select></div>
-    <div><label>Prompt </label><select value=${ui.gPrompt}
+    </select></div>`,
+    html`<div><label>Prompt </label><select id="gPrompt" value=${ui.gPrompt}
       onChange=${e => { ui.gPrompt = e.target.value; update(); }}>
       <option value="">all</option>${gp.map(p => html`<option value=${p} selected=${p === ui.gPrompt}>${p}</option>`)}
-    </select></div>
-    <div><label>Min. </label><select value=${ui.gMin}
+    </select></div>`,
+    html`<div><label>Min. </label><select id="gMin" value=${ui.gMin}
       onChange=${e => { ui.gMin = e.target.value; update(); }}>
-      ${MIN_OPTS.map((o, i) => html`<option value=${o} selected=${o === ui.gMin}>${MIN_LABEL[i]}</option>`)}
-    </select></div>
-    <div><label>Sort </label><select value=${ui.gSort}
+      ${MIN_OPTS.map(minOpt)}
+    </select></div>`,
+    html`<div><label>Sort </label><select id="gSort" value=${ui.gSort}
       onChange=${e => { ui.gSort = e.target.value; update(); }}>
       <option value="new" selected=${ui.gSort === "new"}>newest</option>
       <option value="best" selected=${ui.gSort === "best"}>best</option>
       <option value="old" selected=${ui.gSort === "old"}>oldest</option>
-    </select></div>
-    <input type="search" value=${ui.gq} placeholder="Text, variant, note…"
-      onInput=${e => { ui.gq = e.target.value; update(); }} />
-  </div>`;
+    </select></div>`,
+    html`<input type="search" id="gq" value=${ui.gq} placeholder="Text, variant, note…"
+      onInput=${e => { ui.gq = e.target.value; update(); }} />`
+  ];
 }
