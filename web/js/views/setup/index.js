@@ -5,6 +5,7 @@ import {toast} from "cb/components/toast.js";
 import {uiConfirm} from "cb/components/dialog.js";
 import {General, VarSets} from "cb/views/setup/general.js";
 import {Models} from "cb/views/setup/models.js";
+import {Prompts} from "cb/views/setup/prompts.js";
 import {suErr} from "cb/views/setup/logic.js";
 
 // ------------------------------------------------------------------ load / save / check (:1011-1070)
@@ -72,8 +73,6 @@ function suCheck(){
     html`<div>${r.ok ? "✓" : r.warn ? "⚠" : "✗"} <b>${r.model}</b> · ${r.mode}<br/><span class="hint">${r.msg}</span></div>`)}`;
 }
 
-// Placeholder – Task 8 (Prompts) imports <Prompts/> here.
-const Prompts = () => html`<p class="hint">Prompts – Task 8</p>`;
 const SECS = [["models", "Models"], ["prompts", "Prompts"], ["sets", "Variable Sets"], ["general", "General"]];
 
 export function Setup(){
