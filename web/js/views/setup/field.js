@@ -37,7 +37,7 @@ export function Field({root, path, type = "text", as = "input", ...rest}){
     markDirty(suWhich(root));
   };
   if(as === "textarea")
-    return html`<textarea ...${rest} onInput=${onInput}>${shown}</textarea>`;
+    return html`<textarea ...${rest} value=${shown} onInput=${onInput}></textarea>`;
   return html`<input type="text" ...${rest} value=${shown} onInput=${onInput} />`;
 }
 

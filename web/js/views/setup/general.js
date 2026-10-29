@@ -27,11 +27,11 @@ export function General(){
 function SetValues({name, defn}){
   const raw = useRef(null);
   const shown = raw.current !== null && same(textToDefn(raw.current), defn) ? raw.current : defnToText(defn);
-  return html`<textarea rows="4" onInput=${e => {
+  return html`<textarea rows="4" value=${shown} onInput=${e => {
     raw.current = e.currentTarget.value;
     state.setup.doc.vars[name] = textToDefn(raw.current);
     markDirty("prompts");
-  }}>${shown}</textarea>`;
+  }}></textarea>`;
 }
 
 function renameSet(from, e){
