@@ -5,8 +5,6 @@ import {Toast} from "cb/components/toast.js";
 const root = document.getElementById("app");
 let loadError = null;
 
-// ------------------------------------------------------------------ views / controls (placeholders)
-
 function GridView(){ return html`<p>Grid view (placeholder – filled in Task 3)</p>`; }
 function GalleryView(){ return html`<p>Gallery view (placeholder – filled in Task 3)</p>`; }
 function RunView(){ return html`<p>Generate view (placeholder – filled in Task 5)</p>`; }
@@ -16,8 +14,6 @@ function GalleryControls(){ return html`<p style="color:var(--muted)">Gallery co
 
 const VIEWS = {grid: GridView, gallery: GalleryView, run: RunView, setup: SetupView};
 const CONTROLS = {grid: GridControls, gallery: GalleryControls};
-
-// ------------------------------------------------------------------ app frame
 
 function syncView(){
   const hdr = document.querySelector("header");
@@ -48,9 +44,9 @@ function onReload(){
 }
 
 function App(){
-  useLayoutEffect(syncView);   // measure header after every DOM commit (like syncGridView on render/resize)
+  useLayoutEffect(syncView);
 
-  if(loadError) return html`<p class="empty">Could not load data: ${loadError}</p>`;
+  if(loadError) return html`<p class="empty">${loadError}</p>`;
 
   const d = state.data;
   let view = state.ui.view;
@@ -64,36 +60,32 @@ function App(){
   const hidden = static$ ? "display:none" : "";
   const sizeOn = view !== "setup" && view !== "run" ? "on" : "";
 
-  return html`
-    <div><input id="size" type="range" min="160" max="560" value=${state.ui.size}
-      style=${sizeOn ? "" : "display:none"} aria-label="Size"
-      onInput=${e => { state.ui.size = e.target.value; update(); }}></div>
-    <header>
+  return html`<div id="app-inner"><header>
       <div class="top">
         <h1>ComfyBench</h1>
         <nav>
-          <button data-view="grid" class=${view === "grid" ? "on" : ""} onClick=${onNav}>Compare</button>
-          <button data-view="gallery" class=${view === "gallery" ? "on" : ""} onClick=${onNav}>Gallery</button>
-          <button data-view="run" id="nav-run" class=${view === "run" ? "on" : ""} style=${hidden} onClick=${onNav}>Generate</button>
-          <button data-view="setup" id="nav-setup" class=${view === "setup" ? "on" : ""} style=${hidden} onClick=${onNav}>Setup</button>
+          <button data-view="grid" class="${view === "grid" ? "on" : ""}" onclick=${onNav}>Compare</button>
+          <button data-view="gallery" class="${view === "gallery" ? "on" : ""}" onclick=${onNav}>Gallery</button>
+          <button data-view="run" id="nav-run" class="${view === "run" ? "on" : ""}" style="${hidden}" onclick=${onNav}>Generate</button>
+          <button data-view="setup" id="nav-setup" class="${view === "setup" ? "on" : ""}" style="${hidden}" onclick=${onNav}>Setup</button>
         </nav>
-        <button id="reload" title="Reload" onClick=${onReload}>↻</button>
-        <button id="civitai-open" title="Import a picture from Civitai (civitai.com / civitai.red): image into the gallery, prompt into prompts.yaml"
-          style=${hidden}>Civitai import</button>
+        <button id="reload" title="Reload" onclick=${onReload}>↻</button>
+        <button id="civitai-open" title="Import a picture from Civitai (civitai.com / civitai.red): image into the gallery, prompt into prompts.yaml" style="${hidden}" onclick=${()=>{}}>Civitai import</button>
         <span id="status">${status}</span>
       </div>
-      <div class=${view === "grid" ? "ctrl on" : "ctrl"} id="ctrl-grid">${html`<${CONTROLS.grid}/>`}</div>
-      <div class=${view === "gallery" ? "ctrl on" : "ctrl"} id="ctrl-gallery">${html`<${CONTROLS.gallery}/>`}</div>
+      <div class="${view === "grid" ? "ctrl on" : "ctrl"}" id="ctrl-grid">${html`<${CONTROLS.grid}/>`}</div>
+      <div class="${view === "gallery" ? "ctrl on" : "ctrl"}" id="ctrl-gallery">${html`<${CONTROLS.gallery}/>`}</div>
     </header>
-    <main id="view-grid" class=${view === "grid" ? "on" : ""}>${html`<${VIEWS.grid}/>`}</main>
-    <main id="view-gallery" class=${view === "gallery" ? "on" : ""}>${html`<${VIEWS.gallery}/>`}</main>
-    <main id="view-run" class=${view === "run" ? "on" : ""}>${html`<${VIEWS.run}/>`}</main>
-    <main id="view-setup" class=${view === "setup" ? "on" : ""}>${html`<${VIEWS.setup}/>`}</main>
+    <div id="ctrl-size" class="${sizeOn ? "ctrl on" : "ctrl"}" style="margin-top:6px">
+      <label>Size </label><input id="size" type="range" min="160" max="560" value="${state.ui.size}" oninput=${e => { state.ui.size = e.target.value; update(); }} aria-label="Size">
+    </div>
+    <main id="view-grid" class="${view === "grid" ? "on" : ""}">${html`<${VIEWS.grid}/>`}</main>
+    <main id="view-gallery" class="${view === "gallery" ? "on" : ""}">${html`<${VIEWS.gallery}/>`}</main>
+    <main id="view-run" class="${view === "run" ? "on" : ""}">${html`<${VIEWS.run}/>`}</main>
+    <main id="view-setup" class="${view === "setup" ? "on" : ""}">${html`<${VIEWS.setup}/>`}</main>
     <${Toast}/>
-  `;
+  </div>`;
 }
-
-// ------------------------------------------------------------------ boot
 
 async function boot(){
   try {
@@ -105,7 +97,7 @@ async function boot(){
     }
   } catch(e){
     loadError = e.message || String(e);
-    render(html`<p class="empty">Could not load data: ${loadError}</p>`, root);
+    render(html`<p class="empty">${loadError}</p>`, root);
     return;
   }
   state.ui.focus = hashFocus();
