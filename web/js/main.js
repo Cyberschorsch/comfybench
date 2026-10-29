@@ -5,6 +5,8 @@ import {Toast} from "cb/components/toast.js";
 const root = document.getElementById("app");
 let loadError = null;
 
+// ------------------------------------------------------------------ views / controls (placeholders)
+
 function GridView(){ return html`<p>Grid view (placeholder – filled in Task 3)</p>`; }
 function GalleryView(){ return html`<p>Gallery view (placeholder – filled in Task 3)</p>`; }
 function RunView(){ return html`<p>Generate view (placeholder – filled in Task 5)</p>`; }
@@ -14,6 +16,8 @@ function GalleryControls(){ return html`<p style="color:var(--muted)">Gallery co
 
 const VIEWS = {grid: GridView, gallery: GalleryView, run: RunView, setup: SetupView};
 const CONTROLS = {grid: GridControls, gallery: GalleryControls};
+
+// ------------------------------------------------------------------ app frame
 
 function syncView(){
   const hdr = document.querySelector("header");
@@ -46,7 +50,7 @@ function onReload(){
 function App(){
   useLayoutEffect(syncView);
 
-  if(loadError) return html`<p class="empty">${loadError}</p>`;
+  if(loadError) return html`<p class="empty">Could not load data: ${loadError}</p>`;
 
   const d = state.data;
   let view = state.ui.view;
@@ -60,7 +64,7 @@ function App(){
   const hidden = static$ ? "display:none" : "";
   const sizeOn = view !== "setup" && view !== "run" ? "on" : "";
 
-  return html`<div id="app-inner"><header>
+  return html`<header>
       <div class="top">
         <h1>ComfyBench</h1>
         <nav>
@@ -70,21 +74,22 @@ function App(){
           <button data-view="setup" id="nav-setup" class="${view === "setup" ? "on" : ""}" style="${hidden}" onclick=${onNav}>Setup</button>
         </nav>
         <button id="reload" title="Reload" onclick=${onReload}>↻</button>
-        <button id="civitai-open" title="Import a picture from Civitai (civitai.com / civitai.red): image into the gallery, prompt into prompts.yaml" style="${hidden}" onclick=${()=>{}}>Civitai import</button>
+        <button id="civitai-open" title="Import a picture from Civitai (civitai.com / civitai.red): image into the gallery, prompt into prompts.yaml" style="${hidden}">Civitai import</button>
         <span id="status">${status}</span>
       </div>
       <div class="${view === "grid" ? "ctrl on" : "ctrl"}" id="ctrl-grid">${html`<${CONTROLS.grid}/>`}</div>
       <div class="${view === "gallery" ? "ctrl on" : "ctrl"}" id="ctrl-gallery">${html`<${CONTROLS.gallery}/>`}</div>
+      <div class="${sizeOn ? "ctrl on" : "ctrl"}" id="ctrl-size" style="margin-top:6px">
+        <label>Size </label><input id="size" type="range" min="160" max="560" value="${state.ui.size}"
+          oninput=${e => { state.ui.size = e.target.value; update(); }} aria-label="Size" />
+      </div>
     </header>
-    <div id="ctrl-size" class="${sizeOn ? "ctrl on" : "ctrl"}" style="margin-top:6px">
-      <label>Size </label><input id="size" type="range" min="160" max="560" value="${state.ui.size}" oninput=${e => { state.ui.size = e.target.value; update(); }} aria-label="Size">
-    </div>
     <main id="view-grid" class="${view === "grid" ? "on" : ""}">${html`<${VIEWS.grid}/>`}</main>
     <main id="view-gallery" class="${view === "gallery" ? "on" : ""}">${html`<${VIEWS.gallery}/>`}</main>
     <main id="view-run" class="${view === "run" ? "on" : ""}">${html`<${VIEWS.run}/>`}</main>
     <main id="view-setup" class="${view === "setup" ? "on" : ""}">${html`<${VIEWS.setup}/>`}</main>
     <${Toast}/>
-  </div>`;
+  `;
 }
 
 async function boot(){
@@ -97,7 +102,7 @@ async function boot(){
     }
   } catch(e){
     loadError = e.message || String(e);
-    render(html`<p class="empty">${loadError}</p>`, root);
+    render(html`<p class="empty">Could not load data: ${loadError}</p>`, root);
     return;
   }
   state.ui.focus = hashFocus();

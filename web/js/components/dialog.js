@@ -44,7 +44,7 @@ export function uiPrompt(label, {value = "", placeholder = "", ok = "OK", valida
     }}>
       <label class="dlg-l">${label}<input ref=${el => inputEl = el} type="text" value="${value}"
         placeholder="${placeholder}" autocomplete="off" spellcheck="false"
-        onInput=${() => { errEl.textContent = ""; }}></label>
+        onInput=${() => { errEl.textContent = ""; }} /></label>
       <div ref=${el => errEl = el} class="dlg-err"></div>
       <div class="dlg-btns">
         <button type="button" data-close>Cancel</button>
