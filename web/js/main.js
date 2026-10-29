@@ -1,6 +1,8 @@
 import {html, render, useLayoutEffect} from "cb/vendor/htm-preact.js";
 import {state, update, onRender, setData, reloadData, hashFocus, focusId} from "cb/store.js";
 import {Toast} from "cb/components/toast.js";
+import {Gallery as GalleryView, GalleryControls as GalleryControlsView} from "cb/views/gallery.js";
+import {Lightbox} from "cb/views/lightbox.js";
 
 const root = document.getElementById("app");
 let loadError = null;
@@ -8,14 +10,12 @@ let loadError = null;
 // ------------------------------------------------------------------ views / controls (placeholders)
 
 function GridView(){ return html`<p>Grid view (placeholder – filled in Task 3)</p>`; }
-function GalleryView(){ return html`<p>Gallery view (placeholder – filled in Task 3)</p>`; }
 function RunView(){ return html`<p>Generate view (placeholder – filled in Task 5)</p>`; }
 function SetupView(){ return html`<p>Setup view (placeholder – filled in Task 6)</p>`; }
 function GridControls(){ return html`<p style="color:var(--muted)">Grid controls (placeholder)</p>`; }
-function GalleryControls(){ return html`<p style="color:var(--muted)">Gallery controls (placeholder)</p>`; }
 
 const VIEWS = {grid: GridView, gallery: GalleryView, run: RunView, setup: SetupView};
-const CONTROLS = {grid: GridControls, gallery: GalleryControls};
+const CONTROLS = {grid: GridControls, gallery: GalleryControlsView};
 
 // ------------------------------------------------------------------ app frame
 
@@ -89,6 +89,7 @@ function App(){
     <main id="view-run" class="${view === "run" ? "on" : ""}">${html`<${VIEWS.run}/>`}</main>
     <main id="view-setup" class="${view === "setup" ? "on" : ""}">${html`<${VIEWS.setup}/>`}</main>
     <${Toast}/>
+    <${Lightbox}/>
   `;
 }
 
