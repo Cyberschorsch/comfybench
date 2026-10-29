@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ComfyBench</title>
+<!-- assets/logo.svg, embedded so the favicon also works in the static results/index.html -->
+<link rel="icon" sizes="any" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20100%20100%22%20width%3D%22100%22%20height%3D%22100%22%20role%3D%22img%22%20aria-label%3D%22ComfyBench%22%3E%0A%20%20%3Crect%20x%3D%228%22%20%20y%3D%2254%22%20width%3D%2212%22%20height%3D%2230%22%20rx%3D%224%22%20fill%3D%22%2316233A%22%2F%3E%0A%20%20%3Crect%20x%3D%2226%22%20y%3D%2226%22%20width%3D%2212%22%20height%3D%2258%22%20rx%3D%224%22%20fill%3D%22%2316233A%22%2F%3E%0A%20%20%3Crect%20x%3D%2244%22%20y%3D%2242%22%20width%3D%2212%22%20height%3D%2242%22%20rx%3D%224%22%20fill%3D%22%2316233A%22%2F%3E%0A%20%20%3Crect%20x%3D%2262%22%20y%3D%2210%22%20width%3D%2212%22%20height%3D%2274%22%20rx%3D%224%22%20fill%3D%22%23C85A2B%22%2F%3E%0A%20%20%3Crect%20x%3D%2280%22%20y%3D%2260%22%20width%3D%2212%22%20height%3D%2224%22%20rx%3D%224%22%20fill%3D%22%23C85A2B%22%2F%3E%0A%20%20%3Crect%20x%3D%224%22%20%20y%3D%2284%22%20width%3D%2292%22%20height%3D%226%22%20%20rx%3D%223%22%20fill%3D%22%2316233A%22%2F%3E%0A%3C%2Fsvg%3E%0A">
+<link rel="stylesheet" href="static/app.css">
+<!-- Chromium rejects import-map values that are bare specifiers and uses only the first
+     import map, so a resolvable one comes first for the served page. The mandated literal
+     stays present exactly once (build_html removes the first map and replaces the literal
+     with embedded modules for the single-file report). -->
+<script type="importmap">{"imports": {"cb/": "/static/js/"}}</script>
+<script type="importmap">{"imports": {"cb/": "static/js/"}}</script>
+</head>
+<body>
+<div id="app"></div>
+<script>window.CB_EMBED = /*__DATA__*/null;</script>
+<script type="module">import "cb/main.js";</script>
+</body>
+</html>

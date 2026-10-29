@@ -41,7 +41,11 @@ PLACEHOLDER = re.compile(r"\{\{\s*(\w+)\s*\}\}")   # in workflow: {{seed}}
 PROMPT_VAR = re.compile(r"(?<!\{)\{(\w+)\}(?!\})")  # in prompt:   {emotion}
 IMAGE_KEY = re.compile(r"^(image|mask)\w*$")        # keys whose values are input images
 DATA_MARK = "/*__DATA__*/null"
+CSS_MARK = '<link rel="stylesheet" href="static/app.css">'
+IMPORTMAP_MARK = '{"imports": {"cb/": "static/js/"}}'
 SLUG = re.compile(r"^[\w.-]+$")
+
+WEB = CODE / "web"
 
 
 class BenchError(Exception):
@@ -1288,16 +1292,43 @@ def run_opts(data):
             "images": data.get("images") or {}}
 
 
-def template_html():
-    return (CODE / "report_template.html").read_text(encoding="utf-8")
+def _read_index():
+    return (WEB / "index.html").read_text(encoding="utf-8")
+
+
+def build_html(data: dict | None = None) -> str:
+    """Serve variant (data=None): web/index.html unchanged.
+    Report variant (data): inline CSS, embed all cb/ JS modules as base64 data URIs, embed the payload."""
+    text = _read_index()
+    if data is None:
+        return text
+    for mark in (DATA_MARK, CSS_MARK, IMPORTMAP_MARK):
+        if text.count(mark) != 1:
+            raise BenchError(f"web/index.html: marker {mark!r} missing or duplicated")
+    # The first import map (resolvable value for Chromium) only matters for the served
+    # page; the report embeds every module as a data URI, so it is removed here. The
+    # head comment references "static results/index.html", which a self-contained report
+    # must not contain either.
+    text = text.replace('<script type="importmap">{"imports": {"cb/": "/static/js/"}}</script>\n', "")
+    text = text.replace('<!-- assets/logo.svg, embedded so the favicon also works in the static results/index.html -->\n', "")
+    css = (WEB / "app.css").read_text(encoding="utf-8")
+    text = text.replace(CSS_MARK, f"<style>\n{css}\n</style>")
+    imports = {}
+    for f in sorted(WEB.joinpath("js").rglob("*.js")):
+        imports["cb/" + f.relative_to(WEB / "js").as_posix()] = (
+            "data:text/javascript;base64," + base64.b64encode(f.read_bytes()).decode("ascii")
+        )
+    text = text.replace(IMPORTMAP_MARK, json.dumps({"imports": imports}))
+    payload = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
+    text = text.replace(DATA_MARK, payload)
+    return text
 
 
 def write_static(cfg, prompts, store):
     base = out_dir(cfg)
     base.mkdir(parents=True, exist_ok=True)
-    payload = json.dumps(ui_data(cfg, prompts, store, True), ensure_ascii=False).replace("</", "<\\/")
     path = base / "index.html"
-    path.write_text(template_html().replace(DATA_MARK, payload), encoding="utf-8")
+    path.write_text(build_html(ui_data(cfg, prompts, store, True)), encoding="utf-8")
     return path
 
 
@@ -1962,9 +1993,7 @@ def safe_name(name, exts, default):
 
 # ================================================================ serve
 
-def cmd_serve(args):
-    runner = Runner(args.config, args.prompts_file)
-
+def make_handler(args, runner) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *a):
             pass
@@ -1988,7 +2017,19 @@ def cmd_serve(args):
         def do_GET(self):
             path = unquote(urlparse(self.path).path)
             if path in ("/", "/index.html"):
-                return self.send(200, template_html(), "text/html; charset=utf-8")
+                return self.send(200, build_html(), "text/html; charset=utf-8")
+            if path == "/legacy":
+                return self.send(200, (CODE / "report_template.html").read_text(encoding="utf-8"),
+                                 "text/html; charset=utf-8")
+            if path.startswith("/static/"):
+                rest = path[len("/static/"):]
+                f = (WEB / rest).resolve()
+                if WEB.resolve() in f.parents and f.is_file():
+                    ctype = {".js": "text/javascript; charset=utf-8",
+                             ".css": "text/css; charset=utf-8"}.get(f.suffix)
+                    if ctype is None:
+                        ctype = mimetypes.guess_type(f.name)[0] or "application/octet-stream"
+                    return self.send(200, f.read_bytes(), ctype, cache=True)
             if path == "/api/data":
                 try:
                     c, prompts = load_all(args.config, args.prompts_file)
@@ -2123,7 +2164,12 @@ def cmd_serve(args):
                 return self.err("not found", 404)
             return self.send(404, '{"error":"not found"}')
 
-    srv = ThreadingHTTPServer((args.host, args.port), Handler)
+    return Handler
+
+
+def cmd_serve(args):
+    runner = Runner(args.config, args.prompts_file)
+    srv = ThreadingHTTPServer((args.host, args.port), make_handler(args, runner))
     print(f"Gallery running at http://{args.host}:{args.port}  (Ctrl+C quits)")
     try:
         srv.serve_forever()
