@@ -6,6 +6,7 @@ import {Compare, CompareControls} from "cb/views/compare.js";
 import {Lightbox} from "cb/views/lightbox.js";
 import {Generate as RunView, startPolling, navRunLabel} from "cb/views/generate.js";
 import {Setup as SetupView} from "cb/views/setup/index.js";
+import {openCivitaiDialog} from "cb/views/civitai.js";
 
 const root = document.getElementById("app");
 let loadError = null;
@@ -73,7 +74,7 @@ function App(){
           <button data-view="setup" id="nav-setup" class="${view === "setup" ? "on" : ""}" style="${hidden}" onclick=${onNav}>Setup</button>
         </nav>
         <button id="reload" title="Reload" onclick=${onReload}>↻</button>
-        <button id="civitai-open" title="Import a picture from Civitai (civitai.com / civitai.red): image into the gallery, prompt into prompts.yaml" style="${hidden}">Civitai import</button>
+        <button id="civitai-open" title="Import a picture from Civitai (civitai.com / civitai.red): image into the gallery, prompt into prompts.yaml" style="${hidden}" onclick=${openCivitaiDialog}>Civitai import</button>
         <span id="status">${status}</span>
       </div>
       <div class="${view === "grid" ? "ctrl on" : "ctrl"}" id="ctrl-grid">${html`<${CONTROLS.grid}/>`}</div>
