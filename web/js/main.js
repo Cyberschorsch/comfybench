@@ -2,26 +2,26 @@ import {html, render, useLayoutEffect} from "cb/vendor/htm-preact.js";
 import {state, update, onRender, setData, reloadData, hashFocus, focusId} from "cb/store.js";
 import {Toast} from "cb/components/toast.js";
 import {Gallery as GalleryView, GalleryControls as GalleryControlsView} from "cb/views/gallery.js";
+import {Compare, CompareControls} from "cb/views/compare.js";
 import {Lightbox} from "cb/views/lightbox.js";
 
 const root = document.getElementById("app");
 let loadError = null;
 
-// ------------------------------------------------------------------ views / controls (placeholders)
+// ------------------------------------------------------------------ views / controls
 
-function GridView(){ return html`<p>Grid view (placeholder – filled in Task 3)</p>`; }
 function RunView(){ return html`<p>Generate view (placeholder – filled in Task 5)</p>`; }
 function SetupView(){ return html`<p>Setup view (placeholder – filled in Task 6)</p>`; }
-function GridControls(){ return html`<p style="color:var(--muted)">Grid controls (placeholder)</p>`; }
 
-const VIEWS = {grid: GridView, gallery: GalleryView, run: RunView, setup: SetupView};
-const CONTROLS = {grid: GridControls, gallery: GalleryControlsView};
+const VIEWS = {grid: Compare, gallery: GalleryView, run: RunView, setup: SetupView};
+const CONTROLS = {grid: CompareControls, gallery: GalleryControlsView};
 
 // ------------------------------------------------------------------ app frame
 
 function syncView(){
   const hdr = document.querySelector("header");
-  document.documentElement.style.setProperty("--vhdr", (hdr ? hdr.offsetHeight : 0) + "px");
+  const mb = document.getElementById("modelbar");
+  document.documentElement.style.setProperty("--vhdr", (hdr ? hdr.offsetHeight : 0) + (mb ? mb.offsetHeight : 0) + "px");
 }
 
 function applyHash(){
