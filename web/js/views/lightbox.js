@@ -35,6 +35,10 @@ function yamlFor(g){
 
 function Lightbox(){
   const open = state.lb.open;
+  const byId = state.idx.byId;
+  const g = open && byId ? byId.get(state.lb.list[state.lb.idx] || "") : null;
+  const missing = open && !g;
+
   useEffect(() => {
     if(!open) return;
     const onKey = e => {
@@ -51,14 +55,11 @@ function Lightbox(){
     return () => window.removeEventListener("keydown", onKey);
   }, [open]);
 
-  if(!open) return html`<div id="lb" class=""></div>`;
-  const byId = state.idx.byId;
-  const g = byId ? byId.get(state.lb.list[state.lb.idx] || "") : null;
-  const missing = open && !g;
   useEffect(() => {
     if(missing) closeLightbox();
   }, [missing]);
-  if(missing) return html`<div id="lb" class=""></div>`;
+
+  if(!open || missing) return html`<div id="lb" class=""></div>`;
 
   const p = state.idx.promptMap.get(g.prompt) || {};
   const vers = versionsOf(g);
