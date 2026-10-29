@@ -35,12 +35,13 @@ export function uiConfirm(msg, {title = "", ok = "OK", danger = false} = {}){
 // Prompt: resolves with the trimmed value, or null when cancelled.
 // validate(v) returns an error message or "" (like report_template.html:287-299).
 export function uiPrompt(label, {value = "", placeholder = "", ok = "OK", validate} = {}){
-  let inputEl = null, errEl = null;
+  let inputEl = null, errEl = null, result = "";
   const p = uiDialog(close => html`
     <form method="dialog" onSubmit=${e => {
       const v = inputEl.value.trim();
       const msg = v ? (validate ? validate(v) : "") || "" : "Please enter a value";
       if(msg){ e.preventDefault(); errEl.textContent = msg; inputEl.focus(); }
+      else result = v;
     }}>
       <label class="dlg-l">${label}<input ref=${el => inputEl = el} type="text" value="${value}"
         placeholder="${placeholder}" autocomplete="off" spellcheck="false"
@@ -54,5 +55,5 @@ export function uiPrompt(label, {value = "", placeholder = "", ok = "OK", valida
   `);
   // Select the input text when the dialog opens (like report_template.html:292).
   if(inputEl) inputEl.select();
-  return p.then(ret => ret === "ok" ? inputEl.value.trim() : null);
+  return p.then(ret => ret === "ok" ? result : null);
 }

@@ -5,13 +5,12 @@ import {Gallery as GalleryView, GalleryControls as GalleryControlsView} from "cb
 import {Compare, CompareControls} from "cb/views/compare.js";
 import {Lightbox} from "cb/views/lightbox.js";
 import {Generate as RunView, startPolling, navRunLabel} from "cb/views/generate.js";
+import {Setup as SetupView} from "cb/views/setup/index.js";
 
 const root = document.getElementById("app");
 let loadError = null;
 
 // ------------------------------------------------------------------ views / controls
-
-function SetupView(){ return html`<p>Setup view (placeholder – filled in Task 6)</p>`; }
 
 const VIEWS = {grid: Compare, gallery: GalleryView, run: RunView, setup: SetupView};
 const CONTROLS = {grid: CompareControls, gallery: GalleryControlsView};
