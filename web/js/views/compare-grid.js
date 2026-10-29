@@ -199,7 +199,7 @@ export function buildGrid(){
     cells.forEach(group => group.forEach(sc => {
       if(sc.kind === "multi") sc.imgs.forEach(im => { if(im.kind === "img") ids.push(im.id); });
     }));
-    return {p, gr, first, cells, ids,
+    return {p, gr, first, m, cells, ids,
       input: sink.input ? Object.entries(sink.input) : null};
   });
 

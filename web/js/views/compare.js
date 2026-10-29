@@ -59,16 +59,17 @@ export function CompareControls(){
 // ------------------------------------------------------------------ Compare view (returns [modelbar, wrap])
 export function Compare(){
   normalizeGridCfg();
+  const focus = focusId();
   const {empty, cols, subs, rows, flatStats, sub, axis, seedNote} = buildGrid();
   const table = useRef();
 
   useLayoutEffect(() => {
-    if(sub !== "none" && table.current && table.current.tHead && table.current.tHead.rows[0]){
+    if(table.current && table.current.tHead && table.current.tHead.rows[0]){
       table.current.style.setProperty("--h1", table.current.tHead.rows[0].getBoundingClientRect().height + "px");
     } else if(table.current){
       table.current.style.removeProperty("--h1");
     }
-  }, [sub]);
+  });
 
   if(empty){
     return [html`<${ModelBar} />`,
@@ -101,7 +102,9 @@ export function Compare(){
     }
   });
 
-  const foot = flatStats.map(st => html`<td>${st.ratings.length ? avg(st.ratings).toFixed(2) + ` ★ <span style="font-weight:400;color:var(--muted)">(${st.ratings.length})</span>` : "–"}</td>`);
+  const foot = flatStats.map(st => st.ratings.length
+    ? html`<td>${avg(st.ratings).toFixed(2)} ★ <span style="font-weight:400;color:var(--muted)">(${st.ratings.length})</span></td>`
+    : html`<td>–</td>`);
 
   const body = rows.map(row => {
     const {p, gr, first} = row;
@@ -112,20 +115,22 @@ export function Compare(){
     if(row.m && !focus) chips.push(html`<span class="var"><b>Model</b> ${mLabel(row.m.id)}</span>`);
     chips.push(...VarChips({v: gr.rest}));
     const inp = row.input ? html`<div class="inthumb">${row.input.map(([k, f]) => html`<img src=${fileUrl(f)} alt="" title=${k} />`)}<span>Input</span></div>` : "";
-    const cells = row.cells.map((group, ci) => html`<td class="c" key=${"c-" + ci}>
-      ${group.map(sc => sc.kind === "missing"
+    const cells = row.cells.flat().map((sc, ci) => html`<td class="c" key=${"c-" + ci}>
+      ${sc.kind === "missing"
         ? html`<div class="missing${sc.err ? " err" : ""}" title=${sc.title || ""}>${sc.text}${sc.small ? html`<br /><small>${sc.small}</small>` : ""}</div>`
-        : sc.imgs.map((im, ii) => ii === 0
-          ? html`<div key="i">${im.kind === "missing"
-            ? html`<div class="missing${im.err ? " err" : ""}" title=${im.title || ""}>${im.text}${im.small ? html`<br /><small>${im.small}</small>` : ""}</div>`
-            : html`<img loading="lazy" src=${im.src} alt=""
+        : sc.imgs.flatMap((im, ii) => {
+            const out = [];
+            if(ii > 0) out.push(html`<div style="height:10px" key="s-${ii}" />`);
+            if(im.kind === "missing") out.push(html`<div class="missing${im.err ? " err" : ""}" title=${im.title || ""}>${im.text}${im.small ? html`<br /><small>${im.small}</small>` : ""}</div>`);
+            else out.push(html`<img loading="lazy" src=${im.src} alt=""
               onClick=${() => openLightbox(im.id, row.ids)} />
               <div class="below">${Stars({id: im.id})}<span>${im.note ? "📝 " : ""}${LoraBadge({g: {lora_combo: im.lora || "none"}})}
                 ${im.n > 1 ? html`<span class="ver" title="${im.n} versions">v${im.n}</span> ` : ""}
-                ${im.seconds != null ? im.seconds : "–"}s${im.seedNote ? ` · ${im.seed}` : ""}</span></div>`}</div>`
-          : html`<div style="height:10px" key=${"s-" + ii} />`))}
+                ${im.seconds != null ? im.seconds : "–"}s${im.seedNote ? ` · ${im.seed}` : ""}</span></div>`);
+            return out;
+          })}
     </td>`);
-    return html`<tr class=${first ? "first" : ""} key=${"r-" + p.id + "-" + (gr.label || "")}>
+    return html`<tr class=${first ? "first" : ""} key=${p.id + "|" + (gr.label || "") + "|" + (row.m ? row.m.id : "")}>
       <td class="p">${headV}${chips.length ? html`<div class="vars">${chips}</div>` : ""}${inp}</td>${cells}</tr>`;
   });
 
