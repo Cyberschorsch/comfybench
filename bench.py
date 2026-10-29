@@ -42,7 +42,7 @@ PROMPT_VAR = re.compile(r"(?<!\{)\{(\w+)\}(?!\})")  # in prompt:   {emotion}
 IMAGE_KEY = re.compile(r"^(image|mask)\w*$")        # keys whose values are input images
 DATA_MARK = "/*__DATA__*/null"
 CSS_MARK = '<link rel="stylesheet" href="static/app.css">'
-IMPORTMAP_MARK = '{"imports": {"cb/": "static/js/"}}'
+IMPORTMAP_MARK = '{"imports": {"cb/": "./static/js/"}}'
 SLUG = re.compile(r"^[\w.-]+$")
 
 WEB = CODE / "web"
@@ -1305,12 +1305,6 @@ def build_html(data: dict | None = None) -> str:
     for mark in (DATA_MARK, CSS_MARK, IMPORTMAP_MARK):
         if text.count(mark) != 1:
             raise BenchError(f"web/index.html: marker {mark!r} missing or duplicated")
-    # The first import map (resolvable value for Chromium) only matters for the served
-    # page; the report embeds every module as a data URI, so it is removed here. The
-    # head comment references "static results/index.html", which a self-contained report
-    # must not contain either.
-    text = text.replace('<script type="importmap">{"imports": {"cb/": "/static/js/"}}</script>\n', "")
-    text = text.replace('<!-- assets/logo.svg, embedded so the favicon also works in the static results/index.html -->\n', "")
     css = (WEB / "app.css").read_text(encoding="utf-8")
     text = text.replace(CSS_MARK, f"<style>\n{css}\n</style>")
     imports = {}
@@ -2029,7 +2023,7 @@ def make_handler(args, runner) -> type[BaseHTTPRequestHandler]:
                              ".css": "text/css; charset=utf-8"}.get(f.suffix)
                     if ctype is None:
                         ctype = mimetypes.guess_type(f.name)[0] or "application/octet-stream"
-                    return self.send(200, f.read_bytes(), ctype, cache=True)
+                    return self.send(200, f.read_bytes(), ctype)
             if path == "/api/data":
                 try:
                     c, prompts = load_all(args.config, args.prompts_file)
