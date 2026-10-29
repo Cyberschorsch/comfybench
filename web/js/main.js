@@ -1,4 +1,4 @@
-import {html, render} from "cb/vendor/htm-preact.js";
+import {html, render, useLayoutEffect} from "cb/vendor/htm-preact.js";
 import {state, update, onRender, setData, reloadData, hashFocus, focusId} from "cb/store.js";
 import {Toast} from "cb/components/toast.js";
 
@@ -48,13 +48,15 @@ function onReload(){
 }
 
 function App(){
+  useLayoutEffect(syncView);   // measure header after every DOM commit (like syncGridView on render/resize)
+
   if(loadError) return html`<p class="empty">Could not load data: ${loadError}</p>`;
 
   const d = state.data;
-  const view = state.ui.view;
+  let view = state.ui.view;
   const static$ = state.isStatic;
+  if(static$ && (view === "setup" || view === "run")){ view = "grid"; state.ui.view = "grid"; }
   document.documentElement.style.setProperty("--cell", state.ui.size + "px");
-  syncView();
 
   const ok = (d.generations || []).filter(g => g.status === "ok").length;
   const rated = Object.keys(d.ratings || {}).length;
@@ -63,6 +65,9 @@ function App(){
   const sizeOn = view !== "setup" && view !== "run" ? "on" : "";
 
   return html`
+    <div><input id="size" type="range" min="160" max="560" value=${state.ui.size}
+      style=${sizeOn ? "" : "display:none"} aria-label="Size"
+      onInput=${e => { state.ui.size = e.target.value; update(); }}></div>
     <header>
       <div class="top">
         <h1>ComfyBench</h1>
@@ -79,10 +84,6 @@ function App(){
       </div>
       <div class=${view === "grid" ? "ctrl on" : "ctrl"} id="ctrl-grid">${html`<${CONTROLS.grid}/>`}</div>
       <div class=${view === "gallery" ? "ctrl on" : "ctrl"} id="ctrl-gallery">${html`<${CONTROLS.gallery}/>`}</div>
-      <div class=${sizeOn} id="ctrl-size" style="margin-top:6px">
-        <label>Size </label><input id="size" type="range" min="160" max="560" value=${state.ui.size}
-          onInput=${e => { state.ui.size = e.target.value; update(); }}>
-      </div>
     </header>
     <main id="view-grid" class=${view === "grid" ? "on" : ""}>${html`<${VIEWS.grid}/>`}</main>
     <main id="view-gallery" class=${view === "gallery" ? "on" : ""}>${html`<${VIEWS.gallery}/>`}</main>
@@ -109,6 +110,7 @@ async function boot(){
   }
   state.ui.focus = hashFocus();
   if(state.ui.focus) state.ui.view = "grid";
+  if(state.isStatic && (state.ui.view === "setup" || state.ui.view === "run")) state.ui.view = "grid";
   onRender(() => render(html`<${App}/>`, root));
   update();
 

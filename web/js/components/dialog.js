@@ -18,9 +18,8 @@ export async function uiDialog(renderFn, {wide = false} = {}){
     d.showModal();
   });
 }
-
-// Confirm: texts/classes/markup like report_template.html:279-285.
 export function uiConfirm(msg, {title = "", ok = "OK", danger = false} = {}){
+  // Confirm: texts/classes/markup like report_template.html:279-285.
   return uiDialog(close => html`
     <form method="dialog">
       ${title ? html`<h3>${title}</h3>` : ""}
@@ -37,7 +36,7 @@ export function uiConfirm(msg, {title = "", ok = "OK", danger = false} = {}){
 // validate(v) returns an error message or "" (like report_template.html:287-299).
 export function uiPrompt(label, {value = "", placeholder = "", ok = "OK", validate} = {}){
   let inputEl = null, errEl = null;
-  return uiDialog(close => html`
+  const p = uiDialog(close => html`
     <form method="dialog" onSubmit=${e => {
       const v = inputEl.value.trim();
       const msg = v ? (validate ? validate(v) : "") || "" : "Please enter a value";
@@ -52,5 +51,8 @@ export function uiPrompt(label, {value = "", placeholder = "", ok = "OK", valida
         <button value="ok" class="btn-p" autofocus>${ok}</button>
       </div>
     </form>
-  `).then(ret => ret === "ok" ? inputEl.value.trim() : null);
+  `);
+  // Select the input text when the dialog opens (like report_template.html:292).
+  if(inputEl) inputEl.select();
+  return p.then(ret => ret === "ok" ? inputEl.value.trim() : null);
 }

@@ -1,4 +1,5 @@
 import {toast} from "cb/components/toast.js";
+import {state} from "cb/store.js";
 
 export async function api(method, url, body){
   const r = await fetch(url, {
@@ -13,7 +14,7 @@ export async function api(method, url, body){
 }
 
 export function fileUrl(rel){
-  return "files/" + rel.split("/").map(encodeURIComponent).join("/");
+  return (state.isStatic ? "" : "files/") + rel.split("/").map(encodeURIComponent).join("/");
 }
 
 export function pickFile(accept){

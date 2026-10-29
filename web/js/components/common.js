@@ -1,10 +1,8 @@
-import {html, useEffect, useRef} from "cb/vendor/htm-preact.js";
+import {html} from "cb/vendor/htm-preact.js";
 import {api} from "cb/api.js";
 import {toast} from "cb/components/toast.js";
 import {uiConfirm} from "cb/components/dialog.js";
 import {state, update, index, rating as ratingOf, loraKey} from "cb/store.js";
-
-let noteTimer = null;
 
 // ------------------------------------------------------------------ Stars (click -> setRating)
 export function Stars({id}){
@@ -15,10 +13,10 @@ export function Stars({id}){
   </span>`;
 }
 
-// ------------------------------------------------------------------ Var chips / LoRA badge
+// ------------------------------------------------------------------ Var chips (inserted directly into .vars flex container)
 export function VarChips({v}){
-  return html`<span>${Object.entries(v || {}).map(([k, l]) =>
-    html`<span class="var"><b>${k}</b> ${l}</span>`)}</span>`;
+  return Object.entries(v || {}).map(([k, l]) =>
+    html`<span class="var"><b>${k}</b> ${l}</span>`);
 }
 
 export function LoraBadge({g}){
@@ -31,19 +29,10 @@ export function LoraBadge({g}){
 export function OptSelect({value, options = [], onChange, ...rest}){
   const c = value == null ? "" : String(value);
   const missing = c && !options.includes(c);
-  const ref = useRef(null);
-  useEffect(() => {
-    const el = ref.current;
-    if(!el) return;
-    for(const [k, v] of Object.entries(rest)){
-      if(k === "class" || k === "className") el.className = v || "";
-      else el.setAttribute(k, String(v));
-    }
-  });
-  return html`<select ref=${ref} onChange=${e => { if(onChange) onChange(e.target.value); }}>
+  return html`<select ...${rest} value=${c} onChange=${e => { if(onChange) onChange(e.target.value); }}>
     <option value="">– select –</option>
     ${missing ? html`<option value="${c}" selected>${c} ⚠ not in ComfyUI</option>` : ""}
-    ${options.map(o => html`<option value="${o}" ${o === c ? "selected" : ""}>${o}</option>`)}
+    ${options.map(o => html`<option value="${o}" selected=${o === c}>${o}</option>`)}
   </select>`;
 }
 
@@ -54,9 +43,9 @@ export async function setRating(id, v){
   const r = Object.assign({}, state.data.ratings[id]);
   r.rating = r.rating === v ? 0 : v;
   if(!r.rating && !r.note) delete state.data.ratings[id]; else state.data.ratings[id] = r;
+  update();  // optimistic UI first
   try { await api("POST", "api/rating", {id, rating: r.rating || 0, note: r.note || ""}); }
   catch(e){ toast("Save failed"); }
-  update();
 }
 
 export function setNote(id, text){
@@ -66,9 +55,9 @@ export function setNote(id, text){
   clearTimeout(noteTimer);
   noteTimer = setTimeout(async () => {
     const cur = state.data.ratings[id] || {};
+    update();  // optimistic UI first
     try { await api("POST", "api/rating", {id, rating: cur.rating || 0, note: cur.note || ""}); }
     catch(e){ toast("Save failed"); }
-    update();
   }, 500);
 }
 
@@ -84,3 +73,5 @@ export async function deleteGeneration(id){
   update();
   toast("Deleted");
 }
+
+let noteTimer = null;

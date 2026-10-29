@@ -1,21 +1,16 @@
-import {html, render, useRef} from "cb/vendor/htm-preact.js";
+import {html} from "cb/vendor/htm-preact.js";
+import {update} from "cb/store.js";
 
-let host = null;
 let msg = "";
 let timer = null;
 
 export function toast(text){
   msg = text;
-  if(host){
-    host.style.display = "block";
-    host.textContent = text;
-  }
+  update();
   clearTimeout(timer);
-  timer = setTimeout(() => { msg = ""; if(host) host.style.display = "none"; }, 1800);
+  timer = setTimeout(() => { msg = ""; update(); }, 1800);
 }
 
 export function Toast(){
-  const ref = useRef(null);
-  host = ref.current;
-  return html`<div id="toast" ref=${ref} style="display:${msg ? "block" : "none"}">${msg}</div>`;
+  return html`<div id="toast" style=${"display:" + (msg ? "block" : "none")}>${msg}</div>`;
 }
