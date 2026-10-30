@@ -3,7 +3,7 @@ import {state, update, gridCfg, focusId, setFocus, mLabel} from "cb/store.js";
 import {fileUrl} from "cb/api.js";
 import {openLightbox} from "cb/views/lightbox.js";
 import {Stars, LoraBadge, VarChips} from "cb/components/common.js";
-import {normalizeGridCfg, buildGrid, setDimension} from "cb/views/compare-grid.js";
+import {normalizeGridCfg, buildGrid, setDimension, visiblePages} from "cb/views/compare-grid.js";
 
 const avg = a => a.reduce((x, y) => x + y, 0) / a.length;
 
@@ -46,6 +46,8 @@ export function CompareControls(){
       onChange=${e => { cfg.cat = e.target.value; update(); }}>
       ${opt.catOpts.map(([v, l]) => html`<option value=${v} selected=${v === cfg.cat}>${l}</option>`)}
     </select></div>`,
+    html`<div><span class="chip ${state.ui.showOutdated ? "" : "off"}" title="Also show images generated with an older wording of the prompt"
+      onClick=${() => { state.ui.showOutdated = !state.ui.showOutdated; update(); }}>⏳ older prompts</span></div>`,
     html`<input type="search" id="q" placeholder="Prompt or variant…" value=${cfg.q || ""}
       onInput=${e => { cfg.q = e.target.value; update(); }} />`,
     html`<div class="models" id="chips" style=${focus ? "display:none" : ""}>
@@ -54,6 +56,44 @@ export function CompareControls(){
           ? h.filter(x => x !== m.id) : [...h, m.id]; update(); }}>${mLabel(m.id)}</span>`)}
     </div>`
   ];
+}
+
+// ------------------------------------------------------------------ One grid cell: image with in-cell paging over seeds, versions and (marked) outdated images
+function pageImg(im, row, sc, pages, pi){
+  const old = im.old ? html`<span class="ver old" title="Generated with an older wording of this prompt">old</span> ` : "";
+  const pager = pages.length > 1 ? html`<div class="pager">
+    <button title="Previous image" onClick=${e => { e.stopPropagation(); state.page[sc.key] = (pi - 1 + pages.length) % pages.length; update(); }}>‹</button>
+    <b>${pi + 1}/${pages.length}</b><span class="pg-seed">${im.seedNote ? `seed ${im.seed}` : ""}</span>
+    <button title="Next image" onClick=${e => { e.stopPropagation(); state.page[sc.key] = (pi + 1) % pages.length; update(); }}>›</button>
+  </div>` : "";
+  return [html`<img loading="lazy" src=${im.src} alt=""
+    onClick=${() => openLightbox(im.id, row.ids)} />`,
+    html`<div class="below">${Stars({id: im.id})}<span>${im.note ? "📝 " : ""}${LoraBadge({g: {lora_combo: im.lora || "none"}})}
+      ${old}${!old && im.n > 1 ? html`<span class="ver" title="${im.n} current versions">v${im.n}</span> ` : ""}
+      ${im.seconds != null ? im.seconds : "–"}s${im.seedNote && pages.length <= 1 ? ` · ${im.seed}` : ""}</span></div>`, pager];
+}
+
+function renderCell(sc, row){
+  if(sc.kind === "missing"){
+    return html`<div class="missing${sc.err ? " err" : ""}" title=${sc.title || ""}>${sc.text}${sc.small ? html`<br /><small>${sc.small}</small>` : ""}</div>`;
+  }
+  const pages = visiblePages(sc);
+  if(!pages.length){   // only outdated images exist and are hidden: compact placeholder
+    return html`<div class="missing stale" title="Generated with an older wording of this prompt"
+      onClick=${() => { state.page["stale:" + sc.key] = true; update(); }}>⏳ older prompt version (${sc.nOld})<br /><small>click to show</small></div>`;
+  }
+  let pi = state.page[sc.key] || 0;
+  if(pi >= pages.length) pi = 0;   // clamp after data changes
+  const im = pages[pi];
+  if(im.kind === "err"){
+    const pager = pages.length > 1 ? html`<div class="pager">
+      <button title="Previous image" onClick=${e => { e.stopPropagation(); state.page[sc.key] = (pi - 1 + pages.length) % pages.length; update(); }}>‹</button>
+      <b>${pi + 1}/${pages.length}</b>
+      <button title="Next image" onClick=${e => { e.stopPropagation(); state.page[sc.key] = (pi + 1) % pages.length; update(); }}>›</button>
+    </div>` : "";
+    return [html`<div class="missing err" title=${im.title || ""}>${im.text}${im.small ? html`<br /><small>${im.small}</small>` : ""}</div>`, pager];
+  }
+  return pageImg(im, row, sc, pages, pi);
 }
 
 // ------------------------------------------------------------------ Compare view (returns [modelbar, wrap])
@@ -115,21 +155,7 @@ export function Compare(){
     if(row.m && !focus) chips.push(html`<span class="var"><b>Model</b> ${mLabel(row.m.id)}</span>`);
     chips.push(...VarChips({v: gr.rest}));
     const inp = row.input ? html`<div class="inthumb">${row.input.map(([k, f]) => html`<img src=${fileUrl(f)} alt="" title=${k} />`)}<span>Input</span></div>` : "";
-    const cells = row.cells.flat().map((sc, ci) => html`<td class="c" key=${"c-" + ci}>
-      ${sc.kind === "missing"
-        ? html`<div class="missing${sc.err ? " err" : ""}" title=${sc.title || ""}>${sc.text}${sc.small ? html`<br /><small>${sc.small}</small>` : ""}</div>`
-        : sc.imgs.flatMap((im, ii) => {
-            const out = [];
-            if(ii > 0) out.push(html`<div style="height:10px" key="s-${ii}" />`);
-            if(im.kind === "missing") out.push(html`<div class="missing${im.err ? " err" : ""}" title=${im.title || ""}>${im.text}${im.small ? html`<br /><small>${im.small}</small>` : ""}</div>`);
-            else out.push(html`<img loading="lazy" src=${im.src} alt=""
-              onClick=${() => openLightbox(im.id, row.ids)} />
-              <div class="below">${Stars({id: im.id})}<span>${im.note ? "📝 " : ""}${LoraBadge({g: {lora_combo: im.lora || "none"}})}
-                ${im.n > 1 ? html`<span class="ver" title="${im.n} versions">v${im.n}</span> ` : ""}
-                ${im.seconds != null ? im.seconds : "–"}s${im.seedNote ? ` · ${im.seed}` : ""}</span></div>`);
-            return out;
-          })}
-    </td>`);
+    const cells = row.cells.flat().map((sc, ci) => html`<td class="c" key=${"c-" + ci}>${renderCell(sc, row)}</td>`);
     return html`<tr class=${first ? "first" : ""} key=${p.id + "|" + (gr.label || "") + "|" + (row.m ? row.m.id : "")}>
       <td class="p">${headV}${chips.length ? html`<div class="vars">${chips}</div>` : ""}${inp}</td>${cells}</tr>`;
   });

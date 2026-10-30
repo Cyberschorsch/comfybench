@@ -105,6 +105,39 @@ class T_fingerprint(unittest.TestCase):
         self.assertEqual(fp, "6e8a8afcedf7e1ec")
 
 
+class T_prompt_rev(unittest.TestCase):
+    def test_stable_hash(self):
+        p = {"id": "p", "mode": "txt2img", "prompt": "a {{age}} cat", "negative": "blur"}
+        r = bench.prompt_rev(p)
+        self.assertEqual(len(r), 12)
+        self.assertEqual(r, bench.prompt_rev(dict(p)))
+
+    def test_changes_with_text_negative_mode(self):
+        p = {"id": "p", "mode": "txt2img", "prompt": "a cat", "negative": ""}
+        r = bench.prompt_rev(p)
+        self.assertNotEqual(r, bench.prompt_rev({**p, "prompt": "a dog"}))
+        self.assertNotEqual(r, bench.prompt_rev({**p, "negative": "blur"}))
+        self.assertNotEqual(r, bench.prompt_rev({**p, "mode": "img2img"}))
+
+    def test_variants_and_labels_do_not_change_rev(self):   # only the template matters
+        p = {"id": "p", "prompt": "a cat"}
+        q = {"id": "p", "prompt": "a cat", "_variants": [{}], "_mode": "txt2img", "category": "x"}
+        self.assertEqual(bench.prompt_rev(p), bench.prompt_rev(q))
+
+    def test_mode_inferred_when_missing(self):              # same rule as prompt_mode()
+        self.assertNotEqual(bench.prompt_rev({"id": "p", "prompt": "a cat"}),
+                            bench.prompt_rev({"id": "p", "prompt": "a cat", "image": "x.png"}))
+
+
+class T_ui_data_rev(unittest.TestCase):
+    def test_prompt_carries_rev(self):
+        cfg = {"models": {"m": {"workflow": "w.json"}}, "seeds": [42]}
+        prompts = [{"id": "p", "prompt": "hi", "_variants": [{}], "_mode": "txt2img"}]
+        with tempfile.TemporaryDirectory() as d:
+            data = bench.ui_data(cfg, prompts, bench.Store(Path(d)), False)
+        self.assertEqual(data["prompts"][0]["rev"], bench.prompt_rev(prompts[0]))
+
+
 class T_find_text_target(unittest.TestCase):
     def test_follows_link_to_text(self):
         api = {

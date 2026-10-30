@@ -14,6 +14,7 @@ export const state = {
   comfy: { data: null, loading: null },
   lb: { open: false, list: [], idx: 0 },
   idx: { byCell: null, byId: null, modelMap: null, promptMap: null, loraCombos: [] },
+  page: {},             // transient per-cell page index for in-cell paging (not persisted)
   isStatic: false,
 };
 
@@ -25,7 +26,8 @@ function loadUi(){
 }
 state.ui = Object.assign({
   view: "grid", axis: "model", sub: "none", seed: "", cat: "", q: "", size: 280,
-  hidden: [], gModel: "", gPrompt: "", gMin: "0", gSort: "new", gq: "", focus: "", mview: {}
+  hidden: [], gModel: "", gPrompt: "", gMin: "0", gSort: "new", gq: "", focus: "", mview: {},
+  showOutdated: false
 }, loadUi() || {});
 
 let renderCb = null;
@@ -88,6 +90,12 @@ export function loraLabel(k){ return (!k || k === "none") ? "base" : k; }
 export function modelUsesLora(m, key){
   return key === "none" || key.split(",").map(x => x.split(":")[0].trim())
     .every(n => Object.keys(m.loras || {}).includes(n));
+}
+// A generation matches the current prompt wording if it carries the same prompt_rev;
+// records from before prompt_rev existed are treated as current (no false alarms).
+export function isCurrentRev(g){
+  const p = state.idx.promptMap.get(g.prompt);
+  return !g.prompt_rev || !p || !p.rev || g.prompt_rev === p.rev;
 }
 export function versionsOf(g){
   return ((state.idx.byCell.get(ck(g.model, g.prompt, g.variant_key || "", g.seed)) || []))

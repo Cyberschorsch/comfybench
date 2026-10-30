@@ -22,7 +22,7 @@ The example config runs `sdxl-base` with the bundled workflows (ComfyUI needs `s
 
 ## Screenshots
 
-**Compare** – seeds side by side, with ratings and timings per image:
+**Compare** – page through seeds within each cell, with ratings and timings per image:
 
 ![Compare: seeds side by side](assets/compare-seeds.png)
 

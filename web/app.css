@@ -61,6 +61,14 @@ td.c img,.card img{width:100%;border-radius:6px;display:block;cursor:zoom-in;bac
 .missing.err{color:var(--err);border-color:var(--err);cursor:help}
 .below{display:flex;justify-content:space-between;align-items:center;gap:6px;margin-top:4px;font-size:12px;color:var(--muted)}
 .ver{background:var(--line);border-radius:4px;padding:0 4px;color:var(--text)}
+.ver.old{color:var(--muted);border:1px dashed var(--line);background:none}
+.pager{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:3px;font-size:12px;color:var(--muted);user-select:none}
+.pager button{border:1px solid var(--line);background:var(--panel);border-radius:4px;cursor:pointer;color:var(--text);font-size:14px;line-height:1;padding:0 8px}
+.pager button:hover{border-color:var(--accent);color:var(--accent)}
+.pager b{font-weight:400;min-width:2.4em;text-align:center}
+.pager .pg-seed{min-width:4.5em;text-align:left}
+.missing.stale{cursor:pointer;border-style:dashed}
+.missing.stale:hover{color:var(--text);border-color:var(--accent)}
 .stars{white-space:nowrap}
 .stars span{cursor:pointer;color:var(--line);font-size:16px}
 .stars span.on{color:var(--star)}

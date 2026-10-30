@@ -473,6 +473,14 @@ def fingerprint(wf):
     return hashlib.sha1(json.dumps(wf, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:16]
 
 
+def prompt_rev(p):
+    """Content hash of a prompt's template: generations carry it so the UI can tell
+    which images were made with the current wording of the prompt (revision awareness)."""
+    src = json.dumps({"mode": prompt_mode(p), "prompt": p["prompt"],
+                      "negative": p.get("negative", "")}, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha1(src.encode()).hexdigest()[:12]
+
+
 # ================================================================ Storage
 
 class Store:
@@ -914,7 +922,8 @@ def execute(cfg, prompts, opts, emit, stop=None, abort=None):
         label = f"{mid} · {p['id']}{' · ' + vlabel if vlabel else ''}{lora_label} · seed {seed}"
         base_rec = {"model": mid, "prompt": p["id"], "variant": {k: v["label"] for k, v in variant.items()},
                     "variant_key": variant_key(variant), "seed": seed, "mode": mode,
-                    "lora_combo": lora_combo.get("combo_key", "none"), "lora_names": lora_combo.get("names", [])}
+                    "lora_combo": lora_combo.get("combo_key", "none"), "lora_names": lora_combo.get("names", []),
+                    "prompt_rev": prompt_rev(p)}
 
         def fail(msg, record=True):
             nonlocal failed
@@ -1239,6 +1248,7 @@ def ui_data(cfg, prompts, store, static):
         "prompts": [{
             "id": p["id"], "category": p.get("category", ""), "prompt": p["prompt"],
             "negative": p.get("negative", ""), "check": p.get("check", ""), "mode": p["_mode"],
+            "rev": prompt_rev(p),
             "variants": variants_for(p),
             "image": p.get("image"), "image2": p.get("image2"),
             "width": p.get("width"), "height": p.get("height"),

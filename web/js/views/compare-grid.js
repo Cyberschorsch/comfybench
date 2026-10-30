@@ -1,4 +1,4 @@
-import {state, gridCfg, focusId, sweepVarsFor, loraKey, modelUsesLora, rating, mLabel, ck, ckL} from "cb/store.js";
+import {state, gridCfg, focusId, sweepVarsFor, loraKey, modelUsesLora, rating, mLabel, ck, ckL, isCurrentRev} from "cb/store.js";
 import {keyOf, shortVal, dimLabel} from "cb/util.js";
 import {fileUrl} from "cb/api.js";
 
@@ -35,7 +35,7 @@ export function normalizeGridCfg(){
   if(!cfg.sub || !subOpts.some(o => o[0] === cfg.sub)) cfg.sub = "none";
   return {
     axisOpts, subOpts,
-    seedOpts: [...D.seeds.map(s => [s, s]), ["all", "all side by side"]],
+    seedOpts: [...D.seeds.map(s => [s, s]), ["all", "all (paged)"]],
     catOpts: [["", "all"], ...[...new Set(D.prompts.map(p => p.category).filter(Boolean))].map(c => [c, c])]
   };
 }
@@ -50,23 +50,44 @@ export function setDimension(kind, v){
   cfg[kind] = v;
 }
 
-function cellData(model, p, vkey, s, sink, lora, seedNote){
+function cellData(model, p, vkey, seeds, sink, lora, seedNote){
+  // Pages for one grid cell: newest-first per seed, seeds in order, outdated prompt
+  // revisions last (and only when shown). One page is visible at a time.
   if(!model.modes.includes(p.mode)) return {kind: "missing", text: `no ${p.mode} workflow`};
-  const all = (state.idx.byCell.get(lora === undefined || lora === "none"
-    ? ck(model.id, p.id, vkey, s) : ckL(model.id, p.id, vkey, s, lora)) || []);
-  const g = all.find(x => x.status === "ok");
-  if(!g){
-    const e = all[0];
-    if(e) return {kind: "missing", err: true, text: `Error · seed ${s}`, title: e.error || "", small: String(e.error || "").slice(0, 90)};
-    return {kind: "missing", text: `not generated yet · seed ${s}`};
+  const pages = [], oldPages = [];
+  for(const s of seeds){
+    const all = (state.idx.byCell.get(lora === undefined || lora === "none"
+      ? ck(model.id, p.id, vkey, s) : ckL(model.id, p.id, vkey, s, lora)) || []);
+    const okAll = all.filter(x => x.status === "ok");
+    const okCur = okAll.filter(isCurrentRev);
+    const okOld = okAll.filter(x => !isCurrentRev(x));
+    if(okCur.length){
+      sink.ratings.push(rating(okCur[0].id));
+      if(okCur[0].seconds) sink.secs.push(okCur[0].seconds);
+      if(!sink.input && okCur[0].inputs && Object.keys(okCur[0].inputs).length) sink.input = okCur[0].inputs;
+      okCur.forEach((g, i) => pages.push({kind: "img", id: g.id, src: fileUrl(g.files[0]),
+        seconds: g.seconds, note: (state.data.ratings[g.id] || {}).note, seed: s, seedNote,
+        n: okCur.length, lora: g.lora_combo === "none" ? undefined : g.lora_combo}));
+    }
+    okOld.forEach(g => oldPages.push({kind: "img", id: g.id, src: fileUrl(g.files[0]),
+      seconds: g.seconds, note: (state.data.ratings[g.id] || {}).note, seed: s, seedNote, old: true,
+      lora: g.lora_combo === "none" ? undefined : g.lora_combo}));
+    if(!okAll.length && all[0]) pages.push({kind: "err", text: `Error · seed ${s}`,
+      title: all[0].error || "", small: String(all[0].error || "").slice(0, 90)});
   }
-  sink.ratings.push(rating(g.id));
-  if(g.seconds) sink.secs.push(g.seconds);
-  if(!sink.input && g.inputs && Object.keys(g.inputs).length) sink.input = g.inputs;
-  const n = all.filter(x => x.status === "ok").length;
-  const note = (state.data.ratings[g.id] || {}).note;
-  return {kind: "img", id: g.id, src: fileUrl(g.files[0]), seconds: g.seconds, n, note, seed: s, seedNote,
-    lora: g.lora_combo === "none" ? undefined : g.lora_combo};
+  if(!pages.length && !oldPages.length){
+    return {kind: "missing", text: seeds.length > 1 ? "not generated yet" : `not generated yet · seed ${seeds[0]}`};
+  }
+  return {kind: "pages", pages, oldPages, nOld: okOldCount(oldPages)};
+}
+
+function okOldCount(oldPages){ return new Set(oldPages.map(x => x.id)).size; }
+
+// Visible page list for a cell, honouring the global toggle and a per-cell reveal.
+export function visiblePages(sc){
+  if(sc.kind !== "pages") return [];
+  if(state.ui.showOutdated || state.page["stale:" + sc.key]) return [...sc.pages, ...sc.oldPages];
+  return sc.pages;
 }
 
 export function buildGrid(){
@@ -187,17 +208,19 @@ export function buildGrid(){
         if(sub === "lora" && !modelUsesLora(model, sv.lora)) return {kind: "missing", text: "LoRA not configured"};
         const seeds = sub === "seed" ? [sv.s] : axis === "seed" ? [c.s] : seedsSel;
         const local = {ratings: [], secs: [], input: sink.input};
-        const imgs = seeds.map(s => cellData(model, p, vkey, s, local,
-          axis === "lora" ? c.lora : sub === "lora" ? sv.lora : undefined, seedNote));
+        const cellKey = [c.id, si, p.id, gr.key || gr.label || "", m ? m.id : "", focus || ""].join("\u0003");
+        const sc = cellData(model, p, vkey, seeds, local,
+          axis === "lora" ? c.lora : sub === "lora" ? sv.lora : undefined, seedNote);
+        sc.key = cellKey;
         st.ratings.push(...local.ratings); st.secs.push(...local.secs);
         sink.input = local.input;
-        return {kind: "multi", imgs};
+        return sc;
       });
       return subcells;
     });
     const ids = [];
     cells.forEach(group => group.forEach(sc => {
-      if(sc.kind === "multi") sc.imgs.forEach(im => { if(im.kind === "img") ids.push(im.id); });
+      if(sc.kind === "pages") [...sc.pages, ...sc.oldPages].forEach(im => { if(im.kind === "img") ids.push(im.id); });
     }));
     return {p, gr, first, m, cells, ids,
       input: sink.input ? Object.entries(sink.input) : null};
