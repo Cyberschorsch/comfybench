@@ -242,6 +242,17 @@ Keep the first comment line with the source URL and version.
 
 `python bench.py report` writes one self-contained HTML file: the CSS is inlined and every module is embedded as a `data:` URL in the import map, so the report opens straight from `file://` with no server.
 
+### Tests
+
+```bash
+python -m unittest -v                              # backend
+npm install && npx playwright install chromium     # once, dev only – the app itself needs no Node
+npm run test:unit                                  # pure frontend logic (web/js/judge.js), node --test
+npm run test:e2e                                   # Playwright smoke tests against a fixture (e2e/fixture.py)
+```
+
+The e2e tests build a throwaway data dir in `e2e/.home/` and start `bench.py serve` on port 8799.
+
 ## Data layout
 
 ```
