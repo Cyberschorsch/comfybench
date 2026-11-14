@@ -26,3 +26,9 @@ Thumbs.db
 *.log
 
 /docs
+
+# Node (dev-only tests)
+node_modules/
+e2e/.home/
+test-results/
+playwright-report/

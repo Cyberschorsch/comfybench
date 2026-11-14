@@ -3,6 +3,18 @@ import {state, update, rating, mLabel} from "cb/store.js";
 import {fileUrl} from "cb/api.js";
 import {openLightbox} from "cb/views/lightbox.js";
 import {Stars, VarChips, LoraBadge, deleteGeneration} from "cb/components/common.js";
+import {spearman, worstFirst} from "cb/judge.js";
+
+// "Agreement with your stars": Spearman over images with stars and a current judge result.
+function Agreement(){
+  const d = state.data;
+  const pairs = (d.generations || []).map(g => [rating(g.id), (d.judge || {})[g.id]])
+    .filter(([r, e]) => r > 0 && e && !e.stale && typeof e.fidelity_score === "number");
+  const rho = spearman(pairs.map(p => p[0]), pairs.map(p => p[1].fidelity_score));
+  return html`<div class="hint judge-agree" title="Spearman rank correlation between your stars and the judge's fidelity score">
+    Agreement with your stars: ${rho === null ? `too little data (n = ${pairs.length}, needs 10 with variance)`
+      : `ρ = ${rho.toFixed(2)} (n = ${pairs.length})`}</div>`;
+}
 
 const MIN_OPTS = ["0", "1", "2", "3", "4", "5"];
 const MIN_LABEL = ["all", "★", "★★", "★★★", "★★★★", "★★★★★"];
@@ -21,7 +33,9 @@ export function Gallery(){
     && (!q || [g.prompt, g.text, g.final_text || "", g.negative, g.model, mLabel(g.model),
       JSON.stringify(g.variant || {}), JSON.stringify(g.values || {}), g.lora_combo || "",
       g.source || "", (d.ratings[g.id] || {}).note || ""].join(" ").toLowerCase().includes(q)));
-  if(state.ui.gSort === "best") gens.sort((a, b) => rating(b.id) - rating(a.id) || b._i - a._i);
+  const jd = d.judge || {};
+  if(state.ui.gSort === "judge" && d.judge_enabled) gens.sort((a, b) => worstFirst(jd[a.id], jd[b.id]) || b._i - a._i);
+  else if(state.ui.gSort === "best") gens.sort((a, b) => rating(b.id) - rating(a.id) || b._i - a._i);
   else if(state.ui.gSort === "old") gens.sort((a, b) => a._i - b._i);
   else gens.sort((a, b) => b._i - a._i);
   const visible = gens.slice(0, 600).map(g => g.id);
@@ -38,7 +52,7 @@ export function Gallery(){
       <button class="del-btn-card" onClick=${() => deleteGeneration(g.id)} title="Delete">🗑️</button>
     </figcaption>
   </figure>`);
-  return html`<div id="gal">${cards}${(gens.length > 600
+  return html`${d.judge_enabled ? html`<${Agreement} />` : ""}<div id="gal">${cards}${(gens.length > 600
     ? html`<div class="empty">… ${gens.length - 600} more – refine the filter</div>` : "")}</div>`;
 }
 
@@ -67,6 +81,7 @@ export function GalleryControls(){
       <option value="new" selected=${ui.gSort === "new"}>newest</option>
       <option value="best" selected=${ui.gSort === "best"}>best</option>
       <option value="old" selected=${ui.gSort === "old"}>oldest</option>
+      ${d.judge_enabled ? html`<option value="judge" selected=${ui.gSort === "judge"}>judge: worst fidelity first</option>` : ""}
     </select></div>`,
     html`<input type="search" id="gq" value=${ui.gq} placeholder="Text, variant, note…"
       onInput=${e => { ui.gq = e.target.value; update(); }} />`

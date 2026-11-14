@@ -11,7 +11,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Program
-COPY bench.py ./
+COPY bench.py judge.py ./
 COPY web ./web
 # Seed data – copied to /data on first start if nothing is there yet
 COPY config.yaml prompts.yaml README.md /app/defaults/

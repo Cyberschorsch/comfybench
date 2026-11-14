@@ -156,6 +156,34 @@ ComfyBench inserts one `LoraLoaderModelOnly` node per active LoRA in front of th
 
 Every PNG still contains its full workflow: drag it into ComfyUI to open it.
 
+## Judge
+
+An optional vision LLM answers fixed yes/no questions for every image. That gives two numbers per image: **fidelity** (does it follow the prompt?) and **quality** (visible defects?). Compare shows them per cell and averaged per column, the gallery can sort by worst fidelity, and the full view lists every answer. Your stars stay untouched.
+
+Any OpenAI-compatible endpoint works – locally Ollama, LM Studio, vLLM or llama.cpp, or a cloud API:
+
+```yaml
+# config.yaml
+judge:
+  url: http://127.0.0.1:11434/v1
+  model: qwen2.5vl:7b
+  quality:                          # optional, asked for every image
+    - Are hands, faces and limbs anatomically correct (if present)?
+    - Is the image free of visible artifacts such as noise, seams or smearing?
+```
+
+An API key, if needed, goes into the environment variable `COMFYBENCH_JUDGE_KEY` (with Docker: in `.env`), never into the config.
+
+The fidelity questions live per prompt in `prompts.yaml` under `judge:`; variables work as in the prompt (`Is she {emotion}?`):
+
+1. `python bench.py judge --questions-only` lets the LLM write questions for prompts that have none, using the prompt and its `check` text. This rewrites `prompts.yaml` (comments are lost, a backup goes to `.backups/`); existing lists are never touched.
+2. Review the questions – in `prompts.yaml` or in Setup → Prompts. Delete a list to have it generated again.
+3. `python bench.py judge` judges every image that has no current result. Filters: `--models`, `--prompts`, `--category`; `--force` judges again.
+
+A result goes stale when the questions, the variant's text or the judge model change; stale results are greyed out and judged again on the next run. Images made with an older wording of the prompt and imported images are not judged.
+
+The judge is good at prompt adherence – counts, colours, positions, text in the image – and weak at taste. Check the "agreement with your stars" line in the gallery before trusting the ranking.
+
 ## Command line
 
 ```bash
@@ -165,6 +193,7 @@ python bench.py check                                  # validate all model work
 python bench.py import ~/ComfyUI/output --since 2026-10-01
 python bench.py import-url https://civitai.com/images/123   # prompt + metadata from a Civitai picture
 python bench.py report                                 # static read-only copy: results/index.html
+python bench.py judge [--questions-only] [--force]     # let a vision LLM check the images (see Judge)
 python -m unittest -v                                  # tests (from the repo root)
 ```
 
@@ -179,6 +208,7 @@ python -m unittest -v                                  # tests (from the repo ro
 | `--sweep-loras all\|pairs\|singles` | all LoRA combinations of that kind |
 | `--force` | generate again as an additional version |
 | `--dry-run` | fill workflows only, send nothing |
+| `--judge` | judge the new images afterwards (see [Judge](#judge)) |
 
 `import` reads PNGs with ComfyUI metadata (prompt, negative, seed, model, sampler values) into the gallery as "own image". Benchmark images and files imported before are skipped, so it is safe to run repeatedly.
 
@@ -212,6 +242,17 @@ Keep the first comment line with the source URL and version.
 
 `python bench.py report` writes one self-contained HTML file: the CSS is inlined and every module is embedded as a `data:` URL in the import map, so the report opens straight from `file://` with no server.
 
+### Tests
+
+```bash
+python -m unittest -v                              # backend
+npm install && npx playwright install chromium     # once, dev only – the app itself needs no Node
+npm run test:unit                                  # pure frontend logic (web/js/judge.js), node --test
+npm run test:e2e                                   # Playwright smoke tests against a fixture (e2e/fixture.py)
+```
+
+The e2e tests build a throwaway data dir in `e2e/.home/` and start `bench.py serve` on port 8799.
+
 ## Data layout
 
 ```
@@ -222,6 +263,7 @@ inputs/                   # input images for img2img
 results/
   generations.jsonl       # every generation, append-only: parameters, texts, duration, errors
   ratings.json            # ratings and notes
+  judge.json              # judge answers and scores per generation
   _inputs/  _import/      # copies of input images, imported images
   <model>/<prompt>/<variant>__s<seed>__<id>.png
 ```

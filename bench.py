@@ -34,6 +34,7 @@ from urllib.parse import unquote, urlparse
 import requests
 import yaml
 
+
 CODE = Path(__file__).resolve().parent
 # Data folder (config.yaml, prompts.yaml, workflows/, inputs/, results/). Default: next to the script.
 ROOT = Path(os.environ.get("COMFYBENCH_HOME") or CODE).resolve()
@@ -50,6 +51,11 @@ WEB = CODE / "web"
 
 class BenchError(Exception):
     """Error in config, prompts or workflow – shown as a message in CLI and UI."""
+
+
+# judge.py subclasses BenchError and uses bench.* at call time; run as a script, "import bench" must get this module
+sys.modules.setdefault("bench", sys.modules[__name__])
+import judge  # noqa: E402
 INTERNAL_KEYS = {"prompt", "negative", "model_id", "prompt_id", "variant"}
 
 
@@ -492,6 +498,7 @@ class Store:
         self.base = base
         self.gen_path = base / "generations.jsonl"
         self.rat_path = base / "ratings.json"
+        self.judge_path = base / "judge.json"
 
     def generations(self):
         if not self.gen_path.exists():
@@ -550,14 +557,41 @@ class Store:
                     f.write(json.dumps(g, ensure_ascii=False) + "\n")
             tmp.replace(self.gen_path)
 
-            # 2. Delete the rating
-            ratings = self.ratings()
-            if gid in ratings:
-                del ratings[gid]
-                tmp = self.rat_path.with_suffix(".tmp")
-                tmp.write_text(json.dumps(ratings, indent=1, ensure_ascii=False), encoding="utf-8")
-                tmp.replace(self.rat_path)
+            # 2. Delete the rating and the judge entry
+            for path in (self.rat_path, self.judge_path):
+                data = self._read_json(path)
+                if gid in data:
+                    del data[gid]
+                    self._write_json(path, data)
 
+            return True
+
+    @staticmethod
+    def _read_json(path):
+        if not path.exists():
+            return {}
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except ValueError:
+            return {}
+
+    @staticmethod
+    def _write_json(path, data):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(path)
+
+    def judgments(self):
+        return self._read_json(self.judge_path)
+
+    def set_judgment(self, gid, entry):
+        with self.lock:
+            if not any(g.get("id") == gid for g in self.generations()):
+                return False   # deleted while it was being judged
+            data = self.judgments()
+            data[gid] = entry
+            self._write_json(self.judge_path, data)
             return True
 
     def set_rating(self, gid, rating, note):
@@ -912,6 +946,7 @@ def execute(cfg, prompts, opts, emit, stop=None, abort=None):
     client_id = str(uuid.uuid4())
     done = skipped = failed = idle_skipped = 0
     stopped = False
+    new_ids = []
 
     for n, (mid, model, mode, template, p, variant, seed, mapped_img_keys, lora_combo, model_input_ref) in enumerate(jobs, 1):
         if stop is not None and stop.is_set():
@@ -1038,17 +1073,18 @@ def execute(cfg, prompts, opts, emit, stop=None, abort=None):
         store.append(rec)
         done_fps.add(fp)
         done += 1
+        new_ids.append(gid)
         emit("ok", n=n, label=label, secs=secs, rec=rec)
 
     summary = {"total": len(jobs), "done": done, "skipped": skipped, "failed": failed,
-               "idle": idle_skipped, "stopped": stopped}
+               "idle": idle_skipped, "stopped": stopped, "new_ids": new_ids}
     if not dry_run and not plan and done:
         write_static(cfg, prompts, store)
     emit("end", **summary)
     return summary
 
 
-def cli_emit(total_holder):
+def cli_emit(total_holder, noun="generated"):
     def emit(ev, **d):
         tot = total_holder.get("total", "?")
         if ev == "plan":
@@ -1059,7 +1095,7 @@ def cli_emit(total_holder):
         elif ev == "start":
             print(f"[{d['n']}/{tot}] {d['label']}", end="", flush=True)
         elif ev == "ok":
-            print(f"  ✓ {d['secs']}s")
+            print(f"  ✓ {d['secs']}s" + (f"  {d['note']}" if d.get("note") else ""))
         elif ev == "fail":
             print(f"\n[{d['n']}/{tot}] {d['label']}  ✗ {d['msg']}")
         elif ev == "dry":
@@ -1067,7 +1103,7 @@ def cli_emit(total_holder):
         elif ev == "abort":
             print(f"\n✗ {d['msg']}")
         elif ev == "end":
-            print(f"\nDone: {d['done']} generated, {d['skipped']} skipped, {d['failed']} failed")
+            print(f"\nDone: {d['done']} {noun}, {d['skipped']} skipped, {d['failed']} failed")
     return emit
 
 
@@ -1078,8 +1114,24 @@ def cmd_run(args):
             "lora_combo": args.lora_combo, "sweep_loras": args.sweep_loras,
             "force": args.force, "dry_run": args.dry_run}
     summary = execute(cfg, prompts, opts, cli_emit({}))
-    if not args.dry_run and summary["done"]:
+    if getattr(args, "judge", False) and not args.dry_run and not summary.get("stopped") and summary.get("new_ids"):
+        print("\nJudging the new images …")
+        if judge.run(cfg, prompts, args.prompts_file, {"ids": set(summary["new_ids"])},
+                     cli_emit({}, "judged")).get("stopped"):
+            sys.exit(1)
+    if not args.dry_run and summary.get("done"):
         print("View it: python bench.py serve")
+
+
+def cmd_judge(args):
+    cfg, prompts = load_all(args.config, args.prompts_file)
+    opts = {"models": parse_list(args.models), "prompts": parse_list(args.prompts),
+            "categories": parse_list(args.category), "force": args.force, "questions_only": args.questions_only}
+    s = judge.run(cfg, prompts, args.prompts_file, opts, cli_emit({}, "judged"))
+    if args.questions_only and s.get("questions"):
+        print(f"{s['questions']} question list(s) written to {args.prompts_file} – review them, then run: bench.py judge")
+    if s["stopped"]:
+        sys.exit(1)
 
 
 class Runner:
@@ -1133,10 +1185,12 @@ class Runner:
                 st["done"] += 1
                 st["secs"] = (st.get("secs") or [])[-20:] + [d["secs"]]
                 st["current"] = ""
-                r = d["rec"]
-                self.recent.appendleft({"id": r["id"], "file": r["files"][0], "model": r["model"],
-                                        "prompt": r["prompt"], "variant": r["variant"], "seed": r["seed"]})
-                self._log("ok", f"{d['label']} · {d['secs']}s")
+                r = d.get("rec")
+                if r and r.get("files"):   # judge question jobs have no image
+                    self.recent.appendleft({"id": r["id"], "file": r["files"][0], "model": r["model"],
+                                            "prompt": r["prompt"], "variant": r.get("variant") or {},
+                                            "seed": r.get("seed")})
+                self._log("ok", f"{d['label']} · {d['secs']}s" + (f" · {d['note']}" if d.get("note") else ""))
             elif ev == "dry":
                 st["done"] += 1
                 self._log("ok", f"{d['label']} filled" + (f" – {d['hint']}" if d["hint"] else ""))
@@ -1151,7 +1205,7 @@ class Runner:
             elif ev == "end":
                 st["idle"] = d["idle"]
 
-    def start(self, opts):
+    def start(self, opts, kind="run"):
         with self.lock:
             if self.running():
                 raise BenchError("A run is already in progress.")
@@ -1162,19 +1216,30 @@ class Runner:
             self.prompt_id = None
             self.log.clear()
             self.recent.clear()
-            self.st = {"state": "running", "started": now(), "total": 0, "done": 0, "skipped": 0, "failed": 0,
-                       "idle": 0, "current": "", "msg": "", "dry_run": bool(opts.get("dry_run")),
+            self.st = {"state": "running", "kind": kind, "started": now(), "total": 0, "done": 0, "skipped": 0,
+                       "failed": 0, "idle": 0, "current": "", "msg": "", "dry_run": bool(opts.get("dry_run")),
                        "opts": {k: v for k, v in opts.items() if k != "plan"}}
-            self.thread = threading.Thread(target=self._run, args=(cfg, prompts, opts), daemon=True)
+            self.thread = threading.Thread(target=self._run, args=(cfg, prompts, opts, kind), daemon=True)
             self.thread.start()
 
-    def _run(self, cfg, prompts, opts):
+    def _run(self, cfg, prompts, opts, kind="run"):
         try:
-            summary = execute(cfg, prompts, opts, self.emit, self.stop, self.abort)
+            if kind == "judge":
+                summary = judge.run(cfg, prompts, self.prompts_path, opts, self.emit, self.stop)
+            else:
+                summary = execute(cfg, prompts, opts, self.emit, self.stop, self.abort)
+                if opts.get("judge") and not opts.get("dry_run") and not summary["stopped"] and summary.get("new_ids"):
+                    with self.lock:   # same job continues as a judge job: counters start again
+                        self._log("info", f"Done: {summary['done']} generated – judging the new images …")
+                        self.st.update(kind="judge", total=0, done=0, skipped=0, failed=0, idle=0, secs=[])
+                        self.prompt_id = None   # a hard stop now must not cancel ComfyUI work
+                    kind = "judge"
+                    summary = judge.run(cfg, prompts, self.prompts_path, {"ids": set(summary["new_ids"])},
+                                        self.emit, self.stop)
             with self.lock:
                 self.st["state"] = ("error" if self.st.get("abort_error") else "stopped") if summary["stopped"] else "done"
-                self._log("info", f"Done: {summary['done']} generated, {summary['skipped']} skipped, "
-                                  f"{summary['failed']} failed")
+                self._log("info", f"Done: {summary['done']} {'judged' if kind == 'judge' else 'generated'}, "
+                                  f"{summary['skipped']} skipped, {summary['failed']} failed")
         except Exception as e:  # noqa: BLE001
             with self.lock:
                 self.st["state"] = "error"
@@ -1218,6 +1283,7 @@ def plan_run(config_path, prompts_path, opts):
 
 def ui_data(cfg, prompts, store, static):
     gens = store.generations()
+    jcfg = judge.judge_cfg(cfg)
     bench = [g for g in gens if g.get("mode") != "import"]
     seeds = sorted({g["seed"] for g in bench if isinstance(g.get("seed"), int)} | set(cfg.get("seeds", [42])))
     for p in prompts:
@@ -1247,7 +1313,8 @@ def ui_data(cfg, prompts, store, static):
                    for k, v in cfg["models"].items()],
         "prompts": [{
             "id": p["id"], "category": p.get("category", ""), "prompt": p["prompt"],
-            "negative": p.get("negative", ""), "check": p.get("check", ""), "mode": p["_mode"],
+            "negative": p.get("negative", ""), "check": p.get("check", ""), "judge": p.get("judge") or [],
+            "mode": p["_mode"],
             "rev": prompt_rev(p),
             "variants": variants_for(p),
             "image": p.get("image"), "image2": p.get("image2"),
@@ -1256,7 +1323,20 @@ def ui_data(cfg, prompts, store, static):
         "seeds": seeds,
         "generations": gens,
         "ratings": store.ratings(),
+        "judge_enabled": bool(jcfg),
+        "judge": judge_view(jcfg, prompts, gens, store) if jcfg else {},
     }
+
+
+def judge_view(jcfg, prompts, gens, store):
+    """judge.json entries plus stale: questions, variant text or judge model changed since judging."""
+    by_id, gen_by_id = {p["id"]: p for p in prompts}, {g.get("id"): g for g in gens}
+    out = {}
+    for gid, e in store.judgments().items():
+        g = gen_by_id.get(gid)
+        reason, info = judge.expected(g, by_id, jcfg, store.base) if g else ("gone", None)
+        out[gid] = {**e, "stale": bool(reason) or info["qhash"] != e.get("qhash")}
+    return out
 
 
 def model_keys(model):
@@ -1299,7 +1379,7 @@ def run_opts(data):
             "categories": None, "var": None, "sweep": sweep, "sweep_by_model": sweep_by_model,
             "lora_combo": lora_combo, "sweep_loras": sweep_loras,
             "force": bool(data.get("force")), "dry_run": bool(data.get("dry_run")),
-            "images": data.get("images") or {}}
+            "images": data.get("images") or {}, "judge": bool(data.get("judge"))}
 
 
 def _read_index():
@@ -1913,7 +1993,7 @@ def ordered_config(cfg):
 
 CONFIG_HEADER = "# ComfyBench – Configuration. Editable in the gallery under \"Setup\" or by hand (see README.md).\n\n"
 PROMPTS_HEADER = "# ComfyBench – Prompt set. Editable in the gallery under \"Setup\" or by hand (see README.md).\n\n"
-PROMPT_KEY_ORDER = ["id", "category", "prompt", "negative", "check", "image", "width", "height",
+PROMPT_KEY_ORDER = ["id", "category", "prompt", "negative", "check", "judge", "image", "width", "height",
                     "seeds", "mode", "vars", "vary", "params", "model_params"]
 
 
@@ -1948,6 +2028,13 @@ def validate_config(cfg):
                 raise BenchError(f"Model {mid} · {mode}: workflow spec is incomplete")
             if sp and not (ROOT / sp["file"]).is_file():
                 raise BenchError(f"Model {mid} · {mode}: file {sp['file']} does not exist")
+    jc = cfg.get("judge")
+    if jc is not None:
+        if not isinstance(jc, dict) or not all(isinstance(jc.get(k), str) and jc[k].strip() for k in ("url", "model")):
+            raise BenchError("judge needs url and model")
+        q = jc.get("quality")
+        if q is not None and not (isinstance(q, list) and all(isinstance(x, str) and x.strip() for x in q)):
+            raise BenchError("judge.quality must be a list of questions")
     seeds = cfg.get("seeds")
     if seeds is not None and not (isinstance(seeds, list) and all(isinstance(x, int) for x in seeds) and seeds):
         raise BenchError("seeds must be a list of integers")
@@ -1968,6 +2055,8 @@ def validate_prompts(doc):
         if not str(p.get("prompt", "")).strip():
             raise BenchError(f"{pid}: prompt text is missing")
         expand_variants(p, shared)
+        if "judge" in p:
+            judge.check_questions(p["judge"], p)
 
 
 def list_files(sub, exts):
@@ -2110,6 +2199,14 @@ def make_handler(args, runner) -> type[BaseHTTPRequestHandler]:
                             return self.err("Select at least one model and one prompt.")
                         runner.start(opts)
                         return self.ok(runner.status())
+                    if path == "/api/judge/start":
+                        def strlist(x):
+                            return [str(v) for v in x] if isinstance(x, list) and x else None
+                        runner.start({"models": strlist(data.get("models")), "prompts": strlist(data.get("prompts")),
+                                      "categories": parse_list(data.get("category")),
+                                      "force": bool(data.get("force")),
+                                      "questions_only": bool(data.get("questions_only"))}, "judge")
+                        return self.ok(runner.status())
                     if path == "/api/run/stop":
                         runner.request_stop(bool(data.get("hard")))
                         return self.ok(runner.status())
@@ -2200,7 +2297,17 @@ def main():
                    help="test all LoRA combinations: all=all subsets, pairs=only pairs, singles=only single LoRAs")
     r.add_argument("--force", action="store_true", help="regenerate results that already exist")
     r.add_argument("--dry-run", action="store_true", help="only fill workflows, send nothing")
+    r.add_argument("--judge", action="store_true", help="judge the new images afterwards")
     r.set_defaults(func=cmd_run)
+
+    jg = sub.add_parser("judge", help="let a vision LLM answer the judge questions per image")
+    jg.add_argument("--models", help="comma-separated model IDs")
+    jg.add_argument("--prompts", help="comma-separated prompt IDs")
+    jg.add_argument("--category", help="comma-separated categories")
+    jg.add_argument("--force", action="store_true", help="judge again even if the result is current")
+    jg.add_argument("--questions-only", action="store_true",
+                    help="only write missing judge questions to prompts.yaml (to review them first)")
+    jg.set_defaults(func=cmd_judge)
 
     s = sub.add_parser("serve", help="gallery and comparison in the browser")
     s.add_argument("--host", default=os.environ.get("COMFYBENCH_HOST", "127.0.0.1"),

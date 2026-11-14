@@ -62,6 +62,11 @@ td.c img,.card img{width:100%;border-radius:6px;display:block;cursor:zoom-in;bac
 .below{display:flex;justify-content:space-between;align-items:center;gap:6px;margin-top:4px;font-size:12px;color:var(--muted)}
 .ver{background:var(--line);border-radius:4px;padding:0 4px;color:var(--text)}
 .ver.old{color:var(--muted);border:1px dashed var(--line);background:none}
+.jb{background:var(--line);border-radius:4px;padding:0 4px;color:var(--text);font-variant-numeric:tabular-nums;cursor:help}
+.jb.stale{color:var(--muted);border:1px dashed var(--line);background:none}
+.judge-ans{list-style:none;padding:0;margin:4px 0 10px;font-size:13px}
+.judge-ans li.no{color:var(--err)}
+.judge-agree{margin:0 0 10px}
 .pager{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:3px;font-size:12px;color:var(--muted);user-select:none}
 .pager button{border:1px solid var(--line);background:var(--panel);border-radius:4px;cursor:pointer;color:var(--text);font-size:14px;line-height:1;padding:0 8px}
 .pager button:hover{border-color:var(--accent);color:var(--accent)}
