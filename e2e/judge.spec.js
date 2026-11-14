@@ -46,15 +46,14 @@ test("static report shows the badge", async ({page}) => {
 });
 
 test("judge UI stays hidden without a judge section", async ({page}) => {
-  await page.route("**/api/data", async route => {
-    const res = await route.fetch();
-    const d = await res.json();
-    d.judge_enabled = false;
-    d.judge = {};
-    await route.fulfill({json: d});
-  });
+  // Fetch once and reuse: the status poll may reload /api/data while the test is already finishing.
+  const d = await (await page.request.get("/api/data")).json();
+  d.judge_enabled = false;
+  d.judge = {};
+  await page.route("**/api/data", route => route.fulfill({json: d}));
   await open(page, "grid");
   await expect(page.locator("#grid img").first()).toBeVisible();
   await expect(page.locator("#grid .jb")).toHaveCount(0);
   await expect(page.locator("#grid tfoot")).not.toContainText("judge");
+  await page.unrouteAll({behavior: "ignoreErrors"});
 });

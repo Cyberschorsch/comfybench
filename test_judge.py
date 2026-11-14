@@ -64,6 +64,7 @@ class T_store_judgments(unittest.TestCase):
 
     def test_store_judgments_roundtrip(self):
         self.assertEqual(self.store.judgments(), {})
+        self.store.append({"id": "a", "status": "ok", "files": []})
         entry = {"qhash": "abc", "fidelity_score": 0.5}
         self.store.set_judgment("a", entry)
         self.assertEqual(self.store.judgments()["a"], entry)
@@ -347,7 +348,7 @@ prompts:
 """
 
 
-class T_run(PatchPost):
+class RunBase(PatchPost):
     """judge.run against a temp data dir with a fake endpoint."""
 
     def setUp(self):
@@ -381,6 +382,7 @@ class T_run(PatchPost):
         cfg, prompts = bench.load_all(self.cfg_path, self.prompts_path)
         return judge.run(cfg, prompts, self.prompts_path, opts, self.emit)
 
+class T_run(RunBase):
     def test_questions_only_writes_once_with_backup(self):
         self.patch(FakeResp(content='["Is the cat {emotion}?", "Is it a cat?"]'))
         s = self.run_judge(questions_only=True)
@@ -484,6 +486,63 @@ class T_cli(unittest.TestCase):
         self.assertEqual(captured["ids"], {"a"})
 
 
+class T_review_fixes(RunBase):
+    def test_image_deleted_before_its_turn_fails_only_that_item(self):
+        self.add_gen("g1")
+        self.add_gen("g2")
+        orig = judge.select
+
+        def select_then_delete(*a, **k):
+            todo, skipped = orig(*a, **k)
+            (self.tmp / "results" / "m" / "g1.png").unlink()
+            return todo, skipped
+        judge.select = select_then_delete
+        self.addCleanup(setattr, judge, "select", orig)
+        self.patch(FakeResp(content='{"1": "yes", "2": "yes"}'))
+        s = self.run_judge()
+        self.assertEqual((s["done"], s["failed"], s["stopped"]), (1, 1, False))
+        self.assertEqual(list(self.store.judgments()), ["g2"])
+
+    def test_set_judgment_skips_deleted_generation(self):
+        self.store.append({"id": "a", "status": "ok", "files": []})
+        self.store.delete_generation("a")
+        self.store.set_judgment("a", {"qhash": "x"})
+        self.assertEqual(self.store.judgments(), {})
+
+    def test_questions_written_before_abort_are_kept(self):
+        self.prompts_path.write_text(PROMPTS_YAML.replace('    judge: ["Is there a dog?"]\n', ""), encoding="utf-8")
+        self.patch(FakeResp(content='["Is the cat {emotion}?"]'), KeyError("unexpected"))
+        with self.assertRaises(KeyError):
+            self.run_judge(questions_only=True)
+        by = {p["id"]: p for p in bench.load_yaml(self.prompts_path)["prompts"]}
+        self.assertEqual(by["cat"]["judge"], ["Is the cat {emotion}?"])
+        self.assertNotIn("judge", by["dog"])
+
+    def test_other_request_errors(self):
+        cfg = {"url": "http://h/v1", "model": "vl"}
+        self.patch(judge.requests.exceptions.ChunkedEncodingError("cut"))
+        with self.assertRaises(RuntimeError):
+            judge.chat(cfg, "q")
+        for exc in (judge.requests.exceptions.MissingSchema("no scheme"), judge.requests.exceptions.InvalidURL("bad")):
+            self.patch(exc)
+            with self.assertRaises(judge.JudgeAbort):
+                judge.chat(cfg, "q")
+
+    def test_rate_limit_and_request_timeout_are_retryable(self):
+        cfg = {"url": "http://h/v1", "model": "vl"}
+        for code in (408, 429):
+            self.patch(FakeResp(code, body="slow down"))
+            with self.assertRaises(RuntimeError):
+                judge.chat(cfg, "q")
+
+    def test_parse_answers_braces_before_json(self):
+        self.assertEqual(judge.parse_answers('Thinking {it is red}. Answer: {"1": "yes"}', 1), ["yes"])
+
+    def test_parse_questions_trailing_brackets(self):
+        self.assertEqual(judge.parse_questions('["A?", "B?"] (see [1])'), ["A?", "B?"])
+        self.assertEqual(judge.parse_questions('Ideas [draft] → ["A?"]'), ["A?"])
+
+
 class T_ui_data(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="cb-judge-ui-"))
@@ -560,9 +619,12 @@ class T_runner(unittest.TestCase):
         (tmp / "prompts.yaml").write_text("prompts: []\n", encoding="utf-8")
         seen = {}
         orig_exec, orig_run = bench.execute, judge.run
-        bench.execute = lambda cfg, prompts, opts, emit, stop=None, abort=None: {
-            "total": 1, "done": 1, "skipped": 0, "failed": 0, "idle": 0, "stopped": False, "new_ids": ["g1"]}
-        judge.run = lambda cfg, prompts, path, opts, emit, stop=None: seen.update(opts) or {
+
+        def fake_exec(cfg, prompts, opts, emit, stop=None, abort=None):
+            emit("queued", prompt_id="comfy-123")
+            return {"total": 1, "done": 1, "skipped": 0, "failed": 0, "idle": 0, "stopped": False, "new_ids": ["g1"]}
+        bench.execute = fake_exec
+        judge.run = lambda cfg, prompts, path, opts, emit, stop=None: seen.update(opts, prompt_id=r.prompt_id) or {
             "total": 1, "done": 1, "skipped": 0, "failed": 0, "idle": 0, "stopped": False}
         self.addCleanup(setattr, bench, "execute", orig_exec)
         self.addCleanup(setattr, judge, "run", orig_run)
@@ -570,6 +632,7 @@ class T_runner(unittest.TestCase):
         r.start({"judge": True, "dry_run": False})
         r.thread.join(5)
         self.assertEqual(seen["ids"], {"g1"})
+        self.assertIsNone(seen["prompt_id"])      # a hard stop while judging must not cancel ComfyUI work
         self.assertEqual(r.status()["state"], "done")
 
 

@@ -45,16 +45,22 @@ def qhash(model, fidelity, quality):
     return hashlib.sha1(src.encode()).hexdigest()[:12]
 
 
-def _first_json(text, pattern):
-    m = re.search(pattern, text or "", re.S)
-    if not m:
-        raise ValueError("no JSON found in the answer")
-    return json.loads(m.group(0))   # json.JSONDecodeError is a ValueError
+def _first_json(text, kind):
+    """First JSON value of type kind (dict or list) in text – models wrap it in prose, fences or thoughts."""
+    dec, text = json.JSONDecoder(), text or ""
+    for m in re.finditer(r"[\[{]", text):
+        try:
+            val, _ = dec.raw_decode(text, m.start())
+        except ValueError:
+            continue
+        if isinstance(val, kind):
+            return val
+    raise ValueError("no JSON found in the answer")
 
 
 def parse_answers(text, n):
     """'{"1": "yes", "2": "no"}' (possibly wrapped in prose or a fence) → ["yes", "no"]."""
-    data = _first_json(text, r"\{.*?\}")
+    data = _first_json(text, dict)
     out = []
     for i in range(1, n + 1):
         a = data.get(str(i)) if isinstance(data, dict) else None
@@ -66,7 +72,7 @@ def parse_answers(text, n):
 
 
 def parse_questions(text):
-    data = _first_json(text, r"\[.*\]")
+    data = _first_json(text, list)
     if not isinstance(data, list) or not all(isinstance(q, str) for q in data):
         raise ValueError("expected a JSON list of questions")
     return data
@@ -142,6 +148,12 @@ def chat(jcfg, content):
         raise JudgeAbort(f"Judge at {jcfg['url']} is not reachable.") from None
     except requests.Timeout:
         raise RuntimeError(f"Judge did not answer within {TIMEOUT}s") from None
+    except (requests.exceptions.InvalidURL, requests.exceptions.MissingSchema, requests.exceptions.InvalidSchema) as e:
+        raise JudgeAbort(f"Judge url {jcfg['url']!r} is invalid: {e}") from None
+    except requests.RequestException as e:
+        raise RuntimeError(f"Judge request failed: {e}") from None
+    if r.status_code in (408, 429):   # request timeout / rate limit: worth one more try
+        raise RuntimeError(f"Judge returned HTTP {r.status_code}: {r.text[:300]}")
     if 400 <= r.status_code < 500:
         raise JudgeAbort(f"Judge returned HTTP {r.status_code}: {r.text[:300]}")
     if r.status_code >= 500:
@@ -221,6 +233,18 @@ def _questions(jcfg, prompts, prompts_path, opts, emit, stop):
             and (not pids or p["id"] in pids) and (not cats or p.get("category") in cats)]
     emit("plan", total=len(todo))
     new, failed, stopped = {}, 0, False
+    try:
+        failed, stopped = _ask_all(jcfg, todo, new, emit, stop)
+    finally:   # questions generated before an unexpected error are kept
+        if new:
+            _write_questions(prompts_path, new)
+    summary = _summary(len(todo), len(new), failed, stopped, questions=len(new))
+    emit("end", **summary)
+    return summary
+
+
+def _ask_all(jcfg, todo, new, emit, stop):
+    failed, stopped = 0, False
     for n, p in enumerate(todo, 1):
         if stop is not None and stop.is_set():
             stopped = True
@@ -247,17 +271,18 @@ def _questions(jcfg, prompts, prompts_path, opts, emit, stop):
             continue
         emit("ok", n=n, label=p["id"], secs=round(time.time() - t0, 1), rec=None,
              note=f"{len(new[p['id']])} questions")
-    if new:   # one write, with backup – write_yaml drops comments in prompts.yaml
-        doc = bench.load_yaml(prompts_path)
-        for entry in doc.get("prompts") or []:
-            if entry.get("id") in new and not entry.get("judge"):
-                entry["judge"] = new[entry["id"]]
-        doc["prompts"] = [bench._ordered(e, bench.PROMPT_KEY_ORDER) for e in doc.get("prompts") or []]
-        bench.validate_prompts(doc)
-        bench.write_yaml(prompts_path, doc, bench.PROMPTS_HEADER)
-    summary = _summary(len(todo), len(new), failed, stopped, questions=len(new))
-    emit("end", **summary)
-    return summary
+    return failed, stopped
+
+
+def _write_questions(prompts_path, new):
+    """One write, with backup – write_yaml drops comments in prompts.yaml. Lists added meanwhile by hand win."""
+    doc = bench.load_yaml(prompts_path)
+    for entry in doc.get("prompts") or []:
+        if entry.get("id") in new and not entry.get("judge"):
+            entry["judge"] = new[entry["id"]]
+    doc["prompts"] = [bench._ordered(e, bench.PROMPT_KEY_ORDER) for e in doc.get("prompts") or []]
+    bench.validate_prompts(doc)
+    bench.write_yaml(prompts_path, doc, bench.PROMPTS_HEADER)
 
 
 def _label(g):
@@ -280,12 +305,13 @@ def _judge(cfg, jcfg, prompts, opts, emit, stop):
         t0 = time.time()
         qs = info["fidelity"] + info["quality"]
         try:
-            answers = retry(lambda: parse_answers(chat(jcfg, image_content(base / g["files"][0], qs)), len(qs)))
+            content = image_content(base / g["files"][0], qs)
+            answers = retry(lambda: parse_answers(chat(jcfg, content), len(qs)))
         except JudgeAbort as e:
             emit("abort", msg=str(e))
             stopped = True
             break
-        except (RuntimeError, ValueError) as e:
+        except (RuntimeError, ValueError, OSError) as e:   # OSError: image deleted meanwhile
             failed += 1
             emit("fail", n=n, label=label, msg=str(e))
             continue

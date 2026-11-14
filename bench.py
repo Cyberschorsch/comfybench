@@ -587,6 +587,8 @@ class Store:
 
     def set_judgment(self, gid, entry):
         with self.lock:
+            if not any(g.get("id") == gid for g in self.generations()):
+                return   # deleted while it was being judged
             data = self.judgments()
             data[gid] = entry
             self._write_json(self.judge_path, data)
@@ -1225,6 +1227,7 @@ class Runner:
                     with self.lock:   # same job continues as a judge job: counters start again
                         self._log("info", f"Done: {summary['done']} generated – judging the new images …")
                         self.st.update(kind="judge", total=0, done=0, skipped=0, failed=0, idle=0, secs=[])
+                        self.prompt_id = None   # a hard stop now must not cancel ComfyUI work
                     kind = "judge"
                     summary = judge.run(cfg, prompts, self.prompts_path, {"ids": set(summary["new_ids"])},
                                         self.emit, self.stop)
