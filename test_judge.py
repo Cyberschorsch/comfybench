@@ -1,4 +1,6 @@
 """Unit tests for judge.py – run with: python3 -m unittest -v"""
+import contextlib
+import io
 import json
 import os
 import shutil
@@ -475,10 +477,136 @@ class T_cli(unittest.TestCase):
             args = argparse.Namespace(config="c", prompts_file="p", models=None, prompts=None, category=None,
                                       var=None, sweep=None, lora_combo=None, sweep_loras=None, force=False,
                                       dry_run=False, judge=True)
-            bench.cmd_run(args)
+            with contextlib.redirect_stdout(io.StringIO()):
+                bench.cmd_run(args)
         finally:
             bench.execute, judge.run, bench.load_all = orig_exec, orig_run, orig_load
         self.assertEqual(captured["ids"], {"a"})
+
+
+class T_ui_data(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="cb-judge-ui-"))
+        (self.tmp / "m").mkdir()
+        self.p = mk_prompt()
+        self.store = bench.Store(self.tmp)
+        for gid in ("a", "b"):
+            (self.tmp / "m" / f"{gid}.png").write_bytes(b"png")
+            self.store.append(mk_gen(gid, self.p))
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def data(self, cfg):
+        orig = bench.out_dir
+        bench.out_dir = lambda c: self.tmp
+        try:
+            return bench.ui_data({"models": {}, **cfg}, [self.p], self.store, False)
+        finally:
+            bench.out_dir = orig
+
+    def test_ui_data_judge_fields(self):
+        _, info = judge.expected(mk_gen("a", self.p), {"p": self.p}, JCFG, self.tmp)
+        self.store.set_judgment("a", {"qhash": info["qhash"], "fidelity_score": 1.0})
+        self.store.set_judgment("b", {"qhash": "wrong", "fidelity_score": 0.0})
+        d = self.data({"judge": JCFG})
+        self.assertTrue(d["judge_enabled"])
+        self.assertFalse(d["judge"]["a"]["stale"])
+        self.assertTrue(d["judge"]["b"]["stale"])
+        self.assertEqual(d["judge"]["a"]["fidelity_score"], 1.0)
+        self.assertEqual(d["prompts"][0]["judge"], ["Is the cat {emotion}?"])
+
+    def test_ui_data_without_judge(self):
+        self.store.set_judgment("a", {"qhash": "x"})
+        d = self.data({})
+        self.assertFalse(d["judge_enabled"])
+        self.assertEqual(d["judge"], {})
+
+
+class T_runner(unittest.TestCase):
+    def test_runner_judge_kind(self):
+        tmp = Path(tempfile.mkdtemp(prefix="cb-judge-runner-"))
+        self.addCleanup(shutil.rmtree, tmp, True)
+        (tmp / "config.yaml").write_text("models: {}\njudge: {url: u, model: m}\n", encoding="utf-8")
+        (tmp / "prompts.yaml").write_text("prompts: []\n", encoding="utf-8")
+        seen = {}
+
+        def fake_run(cfg, prompts, path, opts, emit, stop=None):
+            seen.update(opts=opts, path=path)
+            emit("plan", total=1)
+            emit("start", n=1, label="m · p · s1")
+            emit("ok", n=1, label="m · p · s1", secs=0.5, rec={"id": "g", "files": ["m/g.png"], "model": "m",
+                                                               "prompt": "p", "variant": {}, "seed": 1},
+                 note="fidelity 1/1")
+            s = {"total": 1, "done": 1, "skipped": 0, "failed": 0, "idle": 0, "stopped": False}
+            emit("end", **s)
+            return s
+        orig = judge.run
+        judge.run = fake_run
+        self.addCleanup(setattr, judge, "run", orig)
+        r = bench.Runner(tmp / "config.yaml", tmp / "prompts.yaml")
+        r.start({"questions_only": True}, "judge")
+        r.thread.join(5)
+        st = r.status()
+        self.assertEqual((st["kind"], st["state"], st["done"]), ("judge", "done", 1))
+        self.assertTrue(any("fidelity 1/1" in l["msg"] for l in st["log"]))
+        self.assertEqual(seen["opts"], {"questions_only": True})
+        self.assertEqual(seen["path"], tmp / "prompts.yaml")
+
+    def test_runner_run_then_judge(self):
+        tmp = Path(tempfile.mkdtemp(prefix="cb-judge-runner-"))
+        self.addCleanup(shutil.rmtree, tmp, True)
+        (tmp / "config.yaml").write_text("models: {}\njudge: {url: u, model: m}\n", encoding="utf-8")
+        (tmp / "prompts.yaml").write_text("prompts: []\n", encoding="utf-8")
+        seen = {}
+        orig_exec, orig_run = bench.execute, judge.run
+        bench.execute = lambda cfg, prompts, opts, emit, stop=None, abort=None: {
+            "total": 1, "done": 1, "skipped": 0, "failed": 0, "idle": 0, "stopped": False, "new_ids": ["g1"]}
+        judge.run = lambda cfg, prompts, path, opts, emit, stop=None: seen.update(opts) or {
+            "total": 1, "done": 1, "skipped": 0, "failed": 0, "idle": 0, "stopped": False}
+        self.addCleanup(setattr, bench, "execute", orig_exec)
+        self.addCleanup(setattr, judge, "run", orig_run)
+        r = bench.Runner(tmp / "config.yaml", tmp / "prompts.yaml")
+        r.start({"judge": True, "dry_run": False})
+        r.thread.join(5)
+        self.assertEqual(seen["ids"], {"g1"})
+        self.assertEqual(r.status()["state"], "done")
+
+
+class T_api_judge(unittest.TestCase):
+    def test_api_judge_start(self):
+        import argparse
+        import threading
+        import urllib.request
+
+        class StubRunner:
+            calls = []
+
+            def start(self, opts, kind="run"):
+                self.calls.append((opts, kind))
+
+            def status(self):
+                return {"state": "running", "kind": "judge"}
+        runner = StubRunner()
+        args = argparse.Namespace(config=bench.ROOT / "config.yaml", prompts_file=bench.ROOT / "prompts.yaml")
+        srv = bench.ThreadingHTTPServer(("127.0.0.1", 0), bench.make_handler(args, runner))
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.server_close)
+        self.addCleanup(srv.shutdown)
+        body = json.dumps({"models": ["m"], "prompts": ["p"], "category": "Text, Art", "force": True,
+                           "questions_only": True}).encode()
+        req = urllib.request.Request(f"http://127.0.0.1:{srv.server_address[1]}/api/judge/start", data=body,
+                                     headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(req, timeout=5) as r:
+            self.assertEqual(json.loads(r.read())["kind"], "judge")
+        opts, kind = runner.calls[0]
+        self.assertEqual(kind, "judge")
+        self.assertEqual(opts, {"models": ["m"], "prompts": ["p"], "categories": ["Text", "Art"],
+                                "force": True, "questions_only": True})
+
+    def test_run_opts_judge(self):
+        self.assertTrue(bench.run_opts({"judge": True})["judge"])
+        self.assertFalse(bench.run_opts({})["judge"])
 
 
 if __name__ == "__main__":

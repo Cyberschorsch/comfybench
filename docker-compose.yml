@@ -13,6 +13,7 @@ services:
       # ComfyUI runs on the host:            http://host.docker.internal:8188
       # ComfyUI runs as a container in the same compose/network: http://comfyui:8188
       COMFYUI_URL: "${COMFYUI_URL:-http://host.docker.internal:8188}"
+      COMFYBENCH_JUDGE_KEY: "${COMFYBENCH_JUDGE_KEY:-}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

@@ -1178,10 +1178,12 @@ class Runner:
                 st["done"] += 1
                 st["secs"] = (st.get("secs") or [])[-20:] + [d["secs"]]
                 st["current"] = ""
-                r = d["rec"]
-                self.recent.appendleft({"id": r["id"], "file": r["files"][0], "model": r["model"],
-                                        "prompt": r["prompt"], "variant": r["variant"], "seed": r["seed"]})
-                self._log("ok", f"{d['label']} · {d['secs']}s")
+                r = d.get("rec")
+                if r and r.get("files"):   # judge question jobs have no image
+                    self.recent.appendleft({"id": r["id"], "file": r["files"][0], "model": r["model"],
+                                            "prompt": r["prompt"], "variant": r.get("variant") or {},
+                                            "seed": r.get("seed")})
+                self._log("ok", f"{d['label']} · {d['secs']}s" + (f" · {d['note']}" if d.get("note") else ""))
             elif ev == "dry":
                 st["done"] += 1
                 self._log("ok", f"{d['label']} filled" + (f" – {d['hint']}" if d["hint"] else ""))
@@ -1196,7 +1198,7 @@ class Runner:
             elif ev == "end":
                 st["idle"] = d["idle"]
 
-    def start(self, opts):
+    def start(self, opts, kind="run"):
         with self.lock:
             if self.running():
                 raise BenchError("A run is already in progress.")
@@ -1207,19 +1209,29 @@ class Runner:
             self.prompt_id = None
             self.log.clear()
             self.recent.clear()
-            self.st = {"state": "running", "started": now(), "total": 0, "done": 0, "skipped": 0, "failed": 0,
-                       "idle": 0, "current": "", "msg": "", "dry_run": bool(opts.get("dry_run")),
+            self.st = {"state": "running", "kind": kind, "started": now(), "total": 0, "done": 0, "skipped": 0,
+                       "failed": 0, "idle": 0, "current": "", "msg": "", "dry_run": bool(opts.get("dry_run")),
                        "opts": {k: v for k, v in opts.items() if k != "plan"}}
-            self.thread = threading.Thread(target=self._run, args=(cfg, prompts, opts), daemon=True)
+            self.thread = threading.Thread(target=self._run, args=(cfg, prompts, opts, kind), daemon=True)
             self.thread.start()
 
-    def _run(self, cfg, prompts, opts):
+    def _run(self, cfg, prompts, opts, kind="run"):
         try:
-            summary = execute(cfg, prompts, opts, self.emit, self.stop, self.abort)
+            if kind == "judge":
+                summary = judge.run(cfg, prompts, self.prompts_path, opts, self.emit, self.stop)
+            else:
+                summary = execute(cfg, prompts, opts, self.emit, self.stop, self.abort)
+                if opts.get("judge") and not opts.get("dry_run") and not summary["stopped"] and summary.get("new_ids"):
+                    with self.lock:   # same job continues as a judge job: counters start again
+                        self._log("info", f"Done: {summary['done']} generated – judging the new images …")
+                        self.st.update(kind="judge", total=0, done=0, skipped=0, failed=0, idle=0, secs=[])
+                    kind = "judge"
+                    summary = judge.run(cfg, prompts, self.prompts_path, {"ids": set(summary["new_ids"])},
+                                        self.emit, self.stop)
             with self.lock:
                 self.st["state"] = ("error" if self.st.get("abort_error") else "stopped") if summary["stopped"] else "done"
-                self._log("info", f"Done: {summary['done']} generated, {summary['skipped']} skipped, "
-                                  f"{summary['failed']} failed")
+                self._log("info", f"Done: {summary['done']} {'judged' if kind == 'judge' else 'generated'}, "
+                                  f"{summary['skipped']} skipped, {summary['failed']} failed")
         except Exception as e:  # noqa: BLE001
             with self.lock:
                 self.st["state"] = "error"
@@ -1263,6 +1275,7 @@ def plan_run(config_path, prompts_path, opts):
 
 def ui_data(cfg, prompts, store, static):
     gens = store.generations()
+    jcfg = judge.judge_cfg(cfg)
     bench = [g for g in gens if g.get("mode") != "import"]
     seeds = sorted({g["seed"] for g in bench if isinstance(g.get("seed"), int)} | set(cfg.get("seeds", [42])))
     for p in prompts:
@@ -1292,7 +1305,8 @@ def ui_data(cfg, prompts, store, static):
                    for k, v in cfg["models"].items()],
         "prompts": [{
             "id": p["id"], "category": p.get("category", ""), "prompt": p["prompt"],
-            "negative": p.get("negative", ""), "check": p.get("check", ""), "mode": p["_mode"],
+            "negative": p.get("negative", ""), "check": p.get("check", ""), "judge": p.get("judge") or [],
+            "mode": p["_mode"],
             "rev": prompt_rev(p),
             "variants": variants_for(p),
             "image": p.get("image"), "image2": p.get("image2"),
@@ -1301,7 +1315,20 @@ def ui_data(cfg, prompts, store, static):
         "seeds": seeds,
         "generations": gens,
         "ratings": store.ratings(),
+        "judge_enabled": bool(jcfg),
+        "judge": judge_view(jcfg, prompts, gens, store) if jcfg else {},
     }
+
+
+def judge_view(jcfg, prompts, gens, store):
+    """judge.json entries plus stale: questions, variant text or judge model changed since judging."""
+    by_id, gen_by_id = {p["id"]: p for p in prompts}, {g.get("id"): g for g in gens}
+    out = {}
+    for gid, e in store.judgments().items():
+        g = gen_by_id.get(gid)
+        reason, info = judge.expected(g, by_id, jcfg, store.base) if g else ("gone", None)
+        out[gid] = {**e, "stale": bool(reason) or info["qhash"] != e.get("qhash")}
+    return out
 
 
 def model_keys(model):
@@ -1344,7 +1371,7 @@ def run_opts(data):
             "categories": None, "var": None, "sweep": sweep, "sweep_by_model": sweep_by_model,
             "lora_combo": lora_combo, "sweep_loras": sweep_loras,
             "force": bool(data.get("force")), "dry_run": bool(data.get("dry_run")),
-            "images": data.get("images") or {}}
+            "images": data.get("images") or {}, "judge": bool(data.get("judge"))}
 
 
 def _read_index():
@@ -2163,6 +2190,14 @@ def make_handler(args, runner) -> type[BaseHTTPRequestHandler]:
                         if not opts["models"] or not opts["prompts"]:
                             return self.err("Select at least one model and one prompt.")
                         runner.start(opts)
+                        return self.ok(runner.status())
+                    if path == "/api/judge/start":
+                        def strlist(x):
+                            return [str(v) for v in x] if isinstance(x, list) and x else None
+                        runner.start({"models": strlist(data.get("models")), "prompts": strlist(data.get("prompts")),
+                                      "categories": parse_list(data.get("category")),
+                                      "force": bool(data.get("force")),
+                                      "questions_only": bool(data.get("questions_only"))}, "judge")
                         return self.ok(runner.status())
                     if path == "/api/run/stop":
                         runner.request_stop(bool(data.get("hard")))
