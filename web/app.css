@@ -165,6 +165,8 @@ tfoot td{font-weight:600;border-top:1px solid var(--line)}
 .su-msg{font-size:12.5px;padding:8px;border-radius:6px;white-space:pre-wrap}
 .su-msg.err{background:#fde8e8;color:#991b1b}
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .su-msg.err{background:#3b1414;color:#fca5a5}}
+.su-msg.ok{background:#e6f6ea;color:#166534}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .su-msg.ok{background:#0f2f1a;color:#86efac}}
 .su-check div{font-size:12.5px;margin:4px 0}
 .su-cols{display:grid;grid-template-columns:230px 1fr;gap:18px;align-items:start}
 .su-list{display:flex;flex-direction:column;gap:2px;position:sticky;top:120px;max-height:calc(100vh - 140px);overflow:auto}
@@ -177,7 +179,8 @@ tfoot td{font-weight:600;border-top:1px solid var(--line)}
 .su-edit h3{margin:22px 0 8px;font-size:14px;border-top:1px solid var(--line);padding-top:14px}
 .su-grid{display:grid;grid-template-columns:150px 1fr;gap:8px 12px;align-items:center}
 .su-grid>label{text-align:right}
-.su-edit input[type=text],.su-edit textarea,.su-edit select{font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:5px 8px;width:100%}
+.su-edit input[type=password]{flex:1;min-width:180px}
+.su-edit input[type=text],.su-edit input[type=password],.su-edit textarea,.su-edit select{font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:5px 8px;width:100%}
 .su-edit textarea{resize:vertical;min-height:2.4em}
 .su-edit input.short{width:120px}
 .hint{font-size:12px;color:var(--muted)}

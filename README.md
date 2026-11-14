@@ -172,7 +172,9 @@ judge:
     - Is the image free of visible artifacts such as noise, seams or smearing?
 ```
 
-An API key, if needed, goes into the environment variable `COMFYBENCH_JUDGE_KEY` (with Docker: in `.env`), never into the config.
+Everything here can also be set in the gallery under **Setup → Judge**, including a "Test connection" button that checks address, key and model name.
+
+An API key, if needed, never goes into the config: either set the environment variable `COMFYBENCH_JUDGE_KEY` (with Docker: in `.env`), or enter it in Setup → Judge, which stores it in `.judge-key` in the data folder (readable only by you). The environment variable takes precedence.
 
 The fidelity questions live per prompt in `prompts.yaml` under `judge:`; variables work as in the prompt (`Is she {emotion}?`):
 
@@ -256,8 +258,9 @@ The e2e tests build a throwaway data dir in `e2e/.home/` and start `bench.py ser
 ## Data layout
 
 ```
-config.yaml               # server, seeds, defaults, models
+config.yaml               # server, seeds, defaults, judge, models
 prompts.yaml              # prompt library
+.judge-key                # judge API key, if entered in Setup (optional)
 workflows/                # exported ComfyUI workflows (API format)
 inputs/                   # input images for img2img
 results/

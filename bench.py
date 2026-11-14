@@ -1979,7 +1979,7 @@ def _ordered(d, order):
 
 
 def ordered_config(cfg):
-    out = _ordered(cfg, ["server", "output_dir", "timeout", "seeds", "defaults", "models"])
+    out = _ordered(cfg, ["server", "output_dir", "timeout", "seeds", "defaults", "judge", "models"])
     models = {}
     for mid, m in (cfg.get("models") or {}).items():
         m = _ordered(m, MODEL_KEY_ORDER)
@@ -2074,6 +2074,7 @@ def setup_data(config_path, prompts_path):
                   "inputs": list_files("inputs", {".png", ".jpg", ".jpeg", ".webp"})},
         "standard_keys": STANDARD_KEYS,
         "builtin_keys": sorted(BUILTIN_KEYS),
+        "judge_key": judge.key_source(),
     }
 
 
@@ -2173,7 +2174,12 @@ def make_handler(args, runner) -> type[BaseHTTPRequestHandler]:
                     validate_prompts(doc)
                     write_yaml(args.prompts_file, doc, PROMPTS_HEADER)
                     return self.ok()
-            except (BenchError, ValueError) as e:
+                if path == "/api/setup/judge-key":
+                    if judge.key_source() == "env":
+                        raise BenchError(f"The key is set via {judge.KEY_ENV}; change it there.")
+                    judge.set_key(str(data.get("key") or ""))
+                    return self.ok({"judge_key": judge.key_source()})
+            except (BenchError, ValueError, OSError) as e:
                 return self.err(e)
             return self.err("not found", 404)
 
@@ -2207,6 +2213,8 @@ def make_handler(args, runner) -> type[BaseHTTPRequestHandler]:
                                       "force": bool(data.get("force")),
                                       "questions_only": bool(data.get("questions_only"))}, "judge")
                         return self.ok(runner.status())
+                    if path == "/api/judge/test":
+                        return self.ok(judge.test_connection(data))
                     if path == "/api/run/stop":
                         runner.request_stop(bool(data.get("hard")))
                         return self.ok(runner.status())

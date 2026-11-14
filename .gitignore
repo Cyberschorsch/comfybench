@@ -10,6 +10,7 @@ results/
 
 # Local config
 .env
+.judge-key
 .env.local
 
 # IDE

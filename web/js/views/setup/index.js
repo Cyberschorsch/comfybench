@@ -6,6 +6,7 @@ import {uiConfirm} from "cb/components/dialog.js";
 import {General, VarSets} from "cb/views/setup/general.js";
 import {Models} from "cb/views/setup/models.js";
 import {Prompts} from "cb/views/setup/prompts.js";
+import {Judge} from "cb/views/setup/judge.js";
 import {suErr} from "cb/views/setup/logic.js";
 
 // ------------------------------------------------------------------ load / save / check (:1011-1070)
@@ -16,7 +17,7 @@ export async function suLoad(){
   catch(e){ su.loadError = e.message; update(); return; }
   su.cfg = su.data.config || {}; su.cfg.models = su.cfg.models || {};
   su.doc = su.data.prompts || {}; su.doc.prompts = su.doc.prompts || []; su.doc.vars = su.doc.vars || {};
-  su.dirty = {config: false, prompts: false}; su.error = ""; su.analysis = {};
+  su.dirty = {config: false, prompts: false}; su.error = ""; su.analysis = {}; su.judgeStash = null;
   su.sec = state.ui.suSec || su.sec || "models";
   if(!su.model || !su.cfg.models[su.model]) su.model = Object.keys(su.cfg.models)[0] || null;
   if(!su.prompt || !su.doc.prompts.some(p => p.id === su.prompt)) su.prompt = (su.doc.prompts[0] || {}).id || null;
@@ -73,7 +74,7 @@ function suCheck(){
     html`<div>${r.ok ? "✓" : r.warn ? "⚠" : "✗"} <b>${r.model}</b> · ${r.mode}<br/><span class="hint">${r.msg}</span></div>`)}`;
 }
 
-const SECS = [["models", "Models"], ["prompts", "Prompts"], ["sets", "Variable Sets"], ["general", "General"]];
+const SECS = [["models", "Models"], ["prompts", "Prompts"], ["sets", "Variable Sets"], ["judge", "Judge"], ["general", "General"]];
 
 export function Setup(){
   const su = state.setup;
@@ -86,7 +87,8 @@ export function Setup(){
     try {
       main = su.sec === "models" ? html`<${Models}/>`
         : su.sec === "prompts" ? html`<${Prompts}/>`
-        : su.sec === "sets" ? html`<${VarSets}/>` : html`<${General}/>`;
+        : su.sec === "sets" ? html`<${VarSets}/>`
+        : su.sec === "judge" ? html`<${Judge}/>` : html`<${General}/>`;
     } catch(e){ main = html`<div class="su-msg err">${e.stack || e.message}</div>`; }
     body = html`<section class="su-main">${main}</section>`;
   }

@@ -721,5 +721,123 @@ class T_api_judge(unittest.TestCase):
         self.assertFalse(bench.run_opts({})["judge"])
 
 
+class KeyBase(unittest.TestCase):
+    """Temp data dir as bench.ROOT, no key in the environment."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="cb-key-"))
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        orig_root = bench.ROOT
+        bench.ROOT = self.tmp
+        self.addCleanup(setattr, bench, "ROOT", orig_root)
+        old = os.environ.pop(judge.KEY_ENV, None)
+        self.addCleanup(lambda: os.environ.pop(judge.KEY_ENV, None) if old is None
+                        else os.environ.__setitem__(judge.KEY_ENV, old))
+
+
+class T_key(KeyBase):
+    def test_key_file_roundtrip(self):
+        self.assertEqual(judge.key_source(), "none")
+        self.assertEqual(judge.api_key(), "")
+        judge.set_key("  sk-file \n")
+        f = self.tmp / judge.KEY_FILE
+        self.assertEqual(f.read_text(encoding="utf-8"), "sk-file")
+        self.assertEqual(f.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(judge.key_source(), "file")
+        self.assertEqual(judge.api_key(), "sk-file")
+        judge.set_key("")
+        self.assertFalse(f.exists())
+        self.assertEqual(judge.key_source(), "none")
+        judge.set_key("")   # deleting a missing key is fine
+
+    def test_env_beats_file(self):
+        judge.set_key("sk-file")
+        os.environ[judge.KEY_ENV] = "sk-env"
+        self.assertEqual(judge.key_source(), "env")
+        self.assertEqual(judge.api_key(), "sk-env")
+
+    def test_chat_uses_key_file(self):
+        judge.set_key("sk-file")
+        fake = FakePost(FakeResp(content="OK"))
+        orig = judge.requests.post
+        judge.requests.post = fake
+        self.addCleanup(setattr, judge.requests, "post", orig)
+        judge.chat({"url": "http://h/v1", "model": "vl"}, "q")
+        self.assertEqual(fake.calls[0]["headers"]["Authorization"], "Bearer sk-file")
+
+    def test_test_connection(self):
+        orig = judge.requests.post
+        self.addCleanup(setattr, judge.requests, "post", orig)
+        judge.requests.post = FakePost(FakeResp(content="OK"))
+        r = judge.test_connection({"url": "http://h/v1", "model": "vl"})
+        self.assertTrue(r["ok"])
+        self.assertIn("seconds", r)
+        self.assertEqual(r["reply"], "OK")
+        judge.requests.post = FakePost(FakeResp(401, body="bad key"))
+        r = judge.test_connection({"url": "http://h/v1", "model": "vl"})
+        self.assertFalse(r["ok"])
+        self.assertIn("401", r["error"])
+        judge.requests.post = FakePost(judge.requests.Timeout("slow"))
+        self.assertFalse(judge.test_connection({"url": "http://h/v1", "model": "vl"})["ok"])
+        with self.assertRaises(BenchError):
+            judge.test_connection({"url": " ", "model": "vl"})
+
+
+class T_api_key(KeyBase):
+    def setUp(self):
+        super().setUp()
+        import argparse
+        (self.tmp / "config.yaml").write_text("models: {}\n", encoding="utf-8")
+        (self.tmp / "prompts.yaml").write_text("prompts: []\n", encoding="utf-8")
+        args = argparse.Namespace(config=self.tmp / "config.yaml", prompts_file=self.tmp / "prompts.yaml")
+        srv = bench.ThreadingHTTPServer(("127.0.0.1", 0), bench.make_handler(args, None))
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.server_close)
+        self.addCleanup(srv.shutdown)
+        self.base = f"http://127.0.0.1:{srv.server_address[1]}"
+
+    def call(self, method, path, body=None):
+        import urllib.error
+        import urllib.request
+        req = urllib.request.Request(self.base + path, method=method,
+                                     data=json.dumps(body).encode() if body is not None else None,
+                                     headers={"Content-Type": "application/json"} if body is not None else {})
+        try:
+            with urllib.request.urlopen(req, timeout=5) as r:
+                return r.status, json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read())
+
+    def test_key_status_never_leaks(self):
+        self.assertEqual(self.call("GET", "/api/setup")[1]["judge_key"], "none")
+        code, res = self.call("PUT", "/api/setup/judge-key", {"key": "sk-secret"})
+        self.assertEqual(code, 200)
+        self.assertEqual(res["judge_key"], "file")
+        _, data = self.call("GET", "/api/setup")
+        self.assertEqual(data["judge_key"], "file")
+        self.assertNotIn("sk-secret", json.dumps(data))
+        self.assertEqual(self.call("PUT", "/api/setup/judge-key", {"key": ""})[1]["judge_key"], "none")
+        self.assertFalse((self.tmp / judge.KEY_FILE).exists())
+
+    def test_key_put_refused_when_env_set(self):
+        os.environ[judge.KEY_ENV] = "sk-env"
+        code, _ = self.call("PUT", "/api/setup/judge-key", {"key": "x"})
+        self.assertEqual(code, 400)
+        self.assertFalse((self.tmp / judge.KEY_FILE).exists())
+
+    def test_judge_test_endpoint(self):
+        orig = judge.requests.post
+        self.addCleanup(setattr, judge.requests, "post", orig)
+        judge.requests.post = FakePost(FakeResp(content="OK"))
+        code, res = self.call("POST", "/api/judge/test", {"url": "http://h/v1", "model": "vl"})
+        self.assertEqual((code, res["ok"]), (200, True))
+        judge.requests.post = FakePost(judge.requests.ConnectionError("refused"))
+        code, res = self.call("POST", "/api/judge/test", {"url": "http://h/v1", "model": "vl"})
+        self.assertEqual((code, res["ok"]), (200, False))
+        self.assertIn("not reachable", res["error"])
+        code, _ = self.call("POST", "/api/judge/test", {"url": "", "model": "vl"})
+        self.assertEqual(code, 400)
+
+
 if __name__ == "__main__":
     unittest.main()

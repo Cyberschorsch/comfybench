@@ -3,6 +3,7 @@ results/
 __pycache__/
 *.pyc
 .env
+.judge-key
 .git
 node_modules
 e2e

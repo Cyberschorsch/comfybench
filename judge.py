@@ -24,6 +24,58 @@ def judge_cfg(cfg):
     return cfg.get("judge") or None
 
 
+# ---------------------------------------------------------------- API key
+# The key never goes into config.yaml: the environment wins, else a file in the data folder (set in Setup → Judge).
+KEY_FILE = ".judge-key"
+
+
+def key_path():
+    return bench.ROOT / KEY_FILE
+
+
+def key_source():
+    """'env', 'file' or 'none' – the key itself is never sent to the UI."""
+    if os.environ.get(KEY_ENV, "").strip():
+        return "env"
+    return "file" if api_key() else "none"
+
+
+def api_key():
+    key = os.environ.get(KEY_ENV, "").strip()
+    if key:
+        return key
+    try:
+        return key_path().read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def set_key(key):
+    """Write the key file (owner-only); an empty key deletes it."""
+    key, path = (key or "").strip(), key_path()
+    if not key:
+        path.unlink(missing_ok=True)
+        return
+    path.unlink(missing_ok=True)   # O_CREAT keeps an existing file's mode – start fresh
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(key)
+
+
+def test_connection(jcfg):
+    """One tiny text request with url/model from the (possibly unsaved) form.
+    {ok, seconds, reply} or {ok: False, error}; checks reachability, key and model name – not vision."""
+    url, model = (str(jcfg.get(k) or "").strip() for k in ("url", "model"))
+    if not url or not model:
+        raise bench.BenchError("Enter url and model first.")
+    t0 = time.monotonic()
+    try:
+        reply = chat({"url": url, "model": model}, "Reply with the single word OK.")
+    except (RuntimeError, bench.BenchError) as e:
+        return {"ok": False, "error": str(e)}
+    return {"ok": True, "seconds": round(time.monotonic() - t0, 2), "reply": reply.strip()[:200]}
+
+
 def check_questions(qs, prompt):
     """Raises BenchError unless qs is a non-empty list of questions using only the prompt's variables."""
     pid = prompt.get("id", "?")
@@ -157,7 +209,7 @@ def retry_after(r):
 def chat(jcfg, content):
     """One chat completion; returns the reply text."""
     url = jcfg["url"].rstrip("/") + "/chat/completions"
-    key = os.environ.get(KEY_ENV, "").strip()
+    key = api_key()
     headers = {"Authorization": f"Bearer {key}"} if key else {}
     body = {"model": jcfg["model"], "temperature": 0, "messages": [{"role": "user", "content": content}]}
     try:
