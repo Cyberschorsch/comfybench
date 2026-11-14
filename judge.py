@@ -2,10 +2,14 @@
 
 Uses bench.* at call time (bench registers itself as module "bench" before importing this one).
 """
+import base64
 import hashlib
 import json
+import os
 import re
 from collections import Counter
+
+import requests
 
 import bench
 
@@ -119,3 +123,66 @@ def select(gens, prompts, jcfg, base, judgments, opts):
         else:
             todo.append((g, info))
     return todo, skipped
+
+
+class JudgeAbort(bench.BenchError):
+    """The judge endpoint is unusable (unreachable, 4xx) – the whole job stops."""
+
+
+def chat(jcfg, content):
+    """One chat completion; returns the reply text."""
+    url = jcfg["url"].rstrip("/") + "/chat/completions"
+    key = os.environ.get(KEY_ENV, "").strip()
+    headers = {"Authorization": f"Bearer {key}"} if key else {}
+    body = {"model": jcfg["model"], "temperature": 0, "messages": [{"role": "user", "content": content}]}
+    try:
+        r = requests.post(url, json=body, headers=headers, timeout=TIMEOUT)
+    except requests.ConnectionError:
+        raise JudgeAbort(f"Judge at {jcfg['url']} is not reachable.") from None
+    except requests.Timeout:
+        raise RuntimeError(f"Judge did not answer within {TIMEOUT}s") from None
+    if 400 <= r.status_code < 500:
+        raise JudgeAbort(f"Judge returned HTTP {r.status_code}: {r.text[:300]}")
+    if r.status_code >= 500:
+        raise RuntimeError(f"Judge returned HTTP {r.status_code}: {r.text[:300]}")
+    try:
+        return r.json()["choices"][0]["message"]["content"] or ""
+    except (ValueError, KeyError, IndexError, TypeError):
+        raise RuntimeError(f"Judge sent an unexpected response: {r.text[:300]}") from None
+
+
+def retry(fn):
+    """fn() with one more attempt on a transient error or an unusable answer."""
+    try:
+        return fn()
+    except (RuntimeError, ValueError):
+        return fn()
+
+
+IMAGE_INSTRUCTION = ('Answer each question about the image with yes or no. Reply with only a JSON object '
+                     'mapping the question number to "yes" or "no", e.g. {"1": "yes", "2": "no"}.')
+
+
+def image_content(path, questions):
+    data = base64.b64encode(path.read_bytes()).decode("ascii")
+    text = IMAGE_INSTRUCTION + "\n\n" + "\n".join(f"{i}. {q}" for i, q in enumerate(questions, 1))
+    return [{"type": "text", "text": text},
+            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{data}"}}]
+
+
+def questions_content(prompt):
+    names = sorted(prompt.get("vars") or {})
+    parts = [
+        "Write 3 to 8 yes/no questions in English that check whether an image follows this text-to-image prompt. "
+        "Each question checks one visible fact (subject, count, color, position, style, text in the image). "
+        "A 'yes' answer must mean the prompt was followed.",
+        f"Prompt: {prompt['prompt']}",
+    ]
+    if names:
+        parts.append("The prompt has variables: " + ", ".join("{" + n + "}" for n in names)
+                     + ". Where a question depends on one, keep the placeholder exactly as written, e.g. {"
+                     + names[0] + "}.")
+    if prompt.get("check"):
+        parts.append(f"The person benchmarking wants to check: {prompt['check']}")
+    parts.append('Reply with only a JSON list of strings, e.g. ["Is there a cat?", "Is the cat orange?"].')
+    return "\n\n".join(parts)

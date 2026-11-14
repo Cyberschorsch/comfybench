@@ -208,5 +208,130 @@ class T_select(unittest.TestCase):
         self.assertEqual(todo[0][1]["quality"], [])
 
 
+class FakeResp:
+    def __init__(self, status=200, content="", body=None):
+        self.status_code = status
+        self._body = body if body is not None else {"choices": [{"message": {"content": content}}]}
+        self.text = body if isinstance(body, str) else json.dumps(self._body)
+
+    def json(self):
+        if isinstance(self._body, str):
+            raise ValueError("not json")
+        return self._body
+
+
+class FakePost:
+    """Replaces judge.requests.post; replies are FakeResp objects or exceptions, used in order."""
+
+    def __init__(self, *replies):
+        self.replies, self.calls = list(replies), []
+
+    def __call__(self, url, json=None, headers=None, timeout=None):
+        self.calls.append({"url": url, "json": json, "headers": headers or {}, "timeout": timeout})
+        r = self.replies.pop(0)
+        if isinstance(r, BaseException):
+            raise r
+        return r
+
+
+class PatchPost(unittest.TestCase):
+    def patch(self, *replies):
+        self.fake = FakePost(*replies)
+        orig = judge.requests.post
+        judge.requests.post = self.fake
+        self.addCleanup(setattr, judge.requests, "post", orig)
+        return self.fake
+
+
+class T_http(PatchPost):
+    def setUp(self):
+        self._key = os.environ.pop(judge.KEY_ENV, None)
+
+    def tearDown(self):
+        os.environ.pop(judge.KEY_ENV, None)
+        if self._key is not None:
+            os.environ[judge.KEY_ENV] = self._key
+
+    def test_chat_payload(self):
+        fake = self.patch(FakeResp(content="hi"), FakeResp(content="ho"))
+        self.assertEqual(judge.chat({"url": "http://h/v1/", "model": "vl"}, "q"), "hi")
+        c = fake.calls[0]
+        self.assertEqual(c["url"], "http://h/v1/chat/completions")
+        self.assertEqual(c["json"]["temperature"], 0)
+        self.assertEqual(c["json"]["model"], "vl")
+        self.assertEqual(c["json"]["messages"], [{"role": "user", "content": "q"}])
+        self.assertEqual(c["timeout"], judge.TIMEOUT)
+        self.assertNotIn("Authorization", c["headers"])
+        os.environ[judge.KEY_ENV] = "k"
+        judge.chat({"url": "http://h/v1", "model": "vl"}, "q")
+        self.assertEqual(fake.calls[1]["headers"]["Authorization"], "Bearer k")
+
+    def test_image_content_data_url(self):
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / "x.png"
+            f.write_bytes(b"\x89PNGdata")
+            content = judge.image_content(f, ["Q1", "Q2"])
+        self.assertIn("1. Q1", content[0]["text"])
+        self.assertIn("2. Q2", content[0]["text"])
+        url = content[1]["image_url"]["url"]
+        self.assertTrue(url.startswith("data:image/png;base64,"))
+        import base64
+        self.assertEqual(base64.b64decode(url.split(",", 1)[1]), b"\x89PNGdata")
+
+    def test_questions_content(self):
+        p = mk_prompt(check="Laugh believable?")
+        text = judge.questions_content(p)
+        self.assertIn("a {emotion} cat", text)
+        self.assertIn("{emotion}", text)
+        self.assertIn("Laugh believable?", text)
+
+    def test_chat_abort_on_connection_error_and_4xx(self):
+        cfg = {"url": "http://h/v1", "model": "vl"}
+        self.patch(judge.requests.ConnectionError("refused"))
+        with self.assertRaises(judge.JudgeAbort):
+            judge.chat(cfg, "q")
+        for code in (400, 401, 404):
+            self.patch(FakeResp(code, body="model does not support images"))
+            with self.assertRaises(judge.JudgeAbort) as cm:
+                judge.chat(cfg, "q")
+            self.assertIn("model does not support images", str(cm.exception))
+            self.assertIn(str(code), str(cm.exception))
+
+    def test_chat_runtime_on_5xx_and_timeout(self):
+        cfg = {"url": "http://h/v1", "model": "vl"}
+        for reply in (FakeResp(500, body="boom"), judge.requests.Timeout("slow"), FakeResp(200, body="<html>")):
+            self.patch(reply)
+            with self.assertRaises(RuntimeError):
+                judge.chat(cfg, "q")
+
+    def test_judge_abort_is_bench_error(self):
+        self.assertTrue(issubclass(judge.JudgeAbort, BenchError))
+
+    def test_retry(self):
+        calls = []
+
+        def flaky():
+            calls.append(1)
+            if len(calls) == 1:
+                raise ValueError("bad")
+            return "ok"
+        self.assertEqual(judge.retry(flaky), "ok")
+
+        def broken():
+            raise RuntimeError("down")
+        with self.assertRaises(RuntimeError):
+            judge.retry(broken)
+
+    def test_retry_does_not_retry_abort(self):
+        calls = []
+
+        def abort():
+            calls.append(1)
+            raise judge.JudgeAbort("stop")
+        with self.assertRaises(judge.JudgeAbort):
+            judge.retry(abort)
+        self.assertEqual(len(calls), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

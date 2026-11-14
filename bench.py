@@ -34,8 +34,6 @@ from urllib.parse import unquote, urlparse
 import requests
 import yaml
 
-sys.modules.setdefault("bench", sys.modules[__name__])  # run as a script: judge.py's "import bench" gets this module
-import judge  # noqa: E402
 
 CODE = Path(__file__).resolve().parent
 # Data folder (config.yaml, prompts.yaml, workflows/, inputs/, results/). Default: next to the script.
@@ -53,6 +51,11 @@ WEB = CODE / "web"
 
 class BenchError(Exception):
     """Error in config, prompts or workflow – shown as a message in CLI and UI."""
+
+
+# judge.py subclasses BenchError and uses bench.* at call time; run as a script, "import bench" must get this module
+sys.modules.setdefault("bench", sys.modules[__name__])
+import judge  # noqa: E402
 INTERNAL_KEYS = {"prompt", "negative", "model_id", "prompt_id", "variant"}
 
 
