@@ -333,5 +333,153 @@ class T_http(PatchPost):
         self.assertEqual(len(calls), 1)
 
 
+PROMPTS_YAML = """# my hand-written comment
+prompts:
+  - id: cat
+    prompt: a {emotion} cat
+    vars:
+      emotion: {laughing: laughing hard}
+  - id: dog
+    prompt: a dog
+    judge: ["Is there a dog?"]
+"""
+
+
+class T_run(PatchPost):
+    """judge.run against a temp data dir with a fake endpoint."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="cb-judge-run-"))
+        self._root = bench.ROOT
+        bench.ROOT = self.tmp
+        self.cfg_path, self.prompts_path = self.tmp / "config.yaml", self.tmp / "prompts.yaml"
+        self.cfg_path.write_text("models: {}\njudge: {url: 'http://h/v1', model: vl, quality: ['Clean?']}\n",
+                                 encoding="utf-8")
+        self.prompts_path.write_text(PROMPTS_YAML, encoding="utf-8")
+        self.store = bench.Store(self.tmp / "results")
+        self.events = []
+
+    def tearDown(self):
+        bench.ROOT = self._root
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def emit(self, ev, **d):
+        self.events.append((ev, d))
+
+    def add_gen(self, gid, prompt="dog", variant=None):
+        cfg, prompts = bench.load_all(self.cfg_path, self.prompts_path)
+        p = next(x for x in prompts if x["id"] == prompt)
+        f = self.tmp / "results" / "m" / f"{gid}.png"
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_bytes(b"png")
+        self.store.append({"id": gid, "status": "ok", "mode": "txt2img", "model": "m", "prompt": prompt,
+                           "variant": variant or {}, "prompt_rev": bench.prompt_rev(p), "files": [f"m/{gid}.png"]})
+
+    def run_judge(self, **opts):
+        cfg, prompts = bench.load_all(self.cfg_path, self.prompts_path)
+        return judge.run(cfg, prompts, self.prompts_path, opts, self.emit)
+
+    def test_questions_only_writes_once_with_backup(self):
+        self.patch(FakeResp(content='["Is the cat {emotion}?", "Is it a cat?"]'))
+        s = self.run_judge(questions_only=True)
+        self.assertEqual(s["questions"], 1)
+        self.assertEqual(len(self.fake.calls), 1)          # dog already has questions
+        doc = bench.load_yaml(self.prompts_path)
+        by = {p["id"]: p for p in doc["prompts"]}
+        self.assertEqual(by["cat"]["judge"], ["Is the cat {emotion}?", "Is it a cat?"])
+        self.assertEqual(by["dog"]["judge"], ["Is there a dog?"])
+        self.assertEqual(len(list((self.tmp / ".backups").glob("prompts.*.yaml"))), 1)
+
+    def test_questions_invalid_placeholder_is_retried_then_failed(self):
+        self.patch(FakeResp(content='["Is it {color}?"]'), FakeResp(content='["Is it {color}?"]'))
+        s = self.run_judge(questions_only=True)
+        self.assertEqual((s["questions"], s["failed"]), (0, 1))
+        self.assertEqual(self.prompts_path.read_text(encoding="utf-8"), PROMPTS_YAML)
+
+    def test_judge_does_not_touch_prompts_yaml(self):
+        self.add_gen("g1")
+        self.patch(FakeResp(content='{"1": "yes", "2": "yes"}'))
+        self.run_judge()
+        self.assertEqual(self.prompts_path.read_text(encoding="utf-8"), PROMPTS_YAML)
+
+    def test_judge_writes_entry_and_second_run_noop(self):
+        self.add_gen("g1")
+        self.patch(FakeResp(content='{"1": "no", "2": "yes"}'))
+        s = self.run_judge()
+        self.assertEqual(s["done"], 1)
+        e = self.store.judgments()["g1"]
+        self.assertEqual(e["fidelity"], [["Is there a dog?", "no"]])
+        self.assertEqual(e["quality"], [["Clean?", "yes"]])
+        self.assertEqual((e["fidelity_score"], e["quality_score"]), (0.0, 1.0))
+        self.assertEqual(e["judge"], "vl")
+        ok = [d for ev, d in self.events if ev == "ok"]
+        self.assertEqual(ok[0]["note"], "fidelity 0/1 · quality 1/1")
+        self.assertTrue((self.tmp / "results" / "index.html").is_file())
+        s2 = self.run_judge()
+        self.assertEqual(len(self.fake.calls), 1)
+        self.assertEqual(s2["skipped_by"], {"current": 1})
+
+    def test_judge_retry_then_fail_continues(self):
+        self.add_gen("g1")
+        self.add_gen("g2")
+        self.patch(FakeResp(content="garbage"), FakeResp(content="garbage"),
+                   FakeResp(content='{"1": "yes", "2": "yes"}'))
+        s = self.run_judge()
+        self.assertEqual((s["done"], s["failed"]), (1, 1))
+        self.assertEqual(list(self.store.judgments()), ["g2"])
+
+    def test_judge_abort_on_4xx(self):
+        self.add_gen("g1")
+        self.add_gen("g2")
+        self.patch(FakeResp(404, body="model not found"))
+        s = self.run_judge()
+        self.assertTrue(s["stopped"])
+        self.assertEqual(self.store.judgments(), {})
+        self.assertIn("model not found", [d for ev, d in self.events if ev == "abort"][0]["msg"])
+
+    def test_no_questions_warns(self):
+        self.add_gen("c1", prompt="cat", variant={"emotion": "laughing"})
+        self.patch()
+        s = self.run_judge()
+        self.assertEqual(s["skipped_by"], {"no-questions": 1})
+        warns = " ".join(d["msg"] for ev, d in self.events if ev == "warn")
+        self.assertIn("--questions-only", warns)
+
+    def test_stop_before_next_item(self):
+        self.add_gen("g1")
+        import threading
+        stop = threading.Event()
+        stop.set()
+        self.patch()
+        cfg, prompts = bench.load_all(self.cfg_path, self.prompts_path)
+        s = judge.run(cfg, prompts, self.prompts_path, {}, self.emit, stop)
+        self.assertTrue(s["stopped"])
+        self.assertEqual(self.fake.calls, [])
+
+    def test_no_judge_config(self):
+        self.cfg_path.write_text("models: {}\n", encoding="utf-8")
+        with self.assertRaises(BenchError) as cm:
+            self.run_judge()
+        self.assertIn("judge:", str(cm.exception))
+
+
+class T_cli(unittest.TestCase):
+    def test_run_judge_flag_uses_ids(self):
+        captured = {}
+        orig_exec, orig_run, orig_load = bench.execute, judge.run, bench.load_all
+        bench.execute = lambda cfg, prompts, opts, emit, *a, **k: {"new_ids": ["a"], "stopped": False, "done": 1}
+        judge.run = lambda cfg, prompts, path, opts, emit, stop=None: captured.update(opts) or {}
+        bench.load_all = lambda c, p: ({"judge": {"url": "u", "model": "m"}}, [])
+        try:
+            import argparse
+            args = argparse.Namespace(config="c", prompts_file="p", models=None, prompts=None, category=None,
+                                      var=None, sweep=None, lora_combo=None, sweep_loras=None, force=False,
+                                      dry_run=False, judge=True)
+            bench.cmd_run(args)
+        finally:
+            bench.execute, judge.run, bench.load_all = orig_exec, orig_run, orig_load
+        self.assertEqual(captured["ids"], {"a"})
+
+
 if __name__ == "__main__":
     unittest.main()

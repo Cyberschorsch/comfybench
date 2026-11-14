@@ -943,6 +943,7 @@ def execute(cfg, prompts, opts, emit, stop=None, abort=None):
     client_id = str(uuid.uuid4())
     done = skipped = failed = idle_skipped = 0
     stopped = False
+    new_ids = []
 
     for n, (mid, model, mode, template, p, variant, seed, mapped_img_keys, lora_combo, model_input_ref) in enumerate(jobs, 1):
         if stop is not None and stop.is_set():
@@ -1069,10 +1070,11 @@ def execute(cfg, prompts, opts, emit, stop=None, abort=None):
         store.append(rec)
         done_fps.add(fp)
         done += 1
+        new_ids.append(gid)
         emit("ok", n=n, label=label, secs=secs, rec=rec)
 
     summary = {"total": len(jobs), "done": done, "skipped": skipped, "failed": failed,
-               "idle": idle_skipped, "stopped": stopped}
+               "idle": idle_skipped, "stopped": stopped, "new_ids": new_ids}
     if not dry_run and not plan and done:
         write_static(cfg, prompts, store)
     emit("end", **summary)
@@ -1090,7 +1092,7 @@ def cli_emit(total_holder):
         elif ev == "start":
             print(f"[{d['n']}/{tot}] {d['label']}", end="", flush=True)
         elif ev == "ok":
-            print(f"  ✓ {d['secs']}s")
+            print(f"  ✓ {d['secs']}s" + (f"  {d['note']}" if d.get("note") else ""))
         elif ev == "fail":
             print(f"\n[{d['n']}/{tot}] {d['label']}  ✗ {d['msg']}")
         elif ev == "dry":
@@ -1109,8 +1111,20 @@ def cmd_run(args):
             "lora_combo": args.lora_combo, "sweep_loras": args.sweep_loras,
             "force": args.force, "dry_run": args.dry_run}
     summary = execute(cfg, prompts, opts, cli_emit({}))
-    if not args.dry_run and summary["done"]:
+    if getattr(args, "judge", False) and not args.dry_run and not summary.get("stopped") and summary.get("new_ids"):
+        print("\nJudging the new images …")
+        judge.run(cfg, prompts, args.prompts_file, {"ids": set(summary["new_ids"])}, cli_emit({}))
+    if not args.dry_run and summary.get("done"):
         print("View it: python bench.py serve")
+
+
+def cmd_judge(args):
+    cfg, prompts = load_all(args.config, args.prompts_file)
+    opts = {"models": parse_list(args.models), "prompts": parse_list(args.prompts),
+            "categories": parse_list(args.category), "force": args.force, "questions_only": args.questions_only}
+    s = judge.run(cfg, prompts, args.prompts_file, opts, cli_emit({}))
+    if args.questions_only and s.get("questions"):
+        print(f"{s['questions']} question list(s) written to {args.prompts_file} – review them, then run: bench.py judge")
 
 
 class Runner:
@@ -2240,7 +2254,17 @@ def main():
                    help="test all LoRA combinations: all=all subsets, pairs=only pairs, singles=only single LoRAs")
     r.add_argument("--force", action="store_true", help="regenerate results that already exist")
     r.add_argument("--dry-run", action="store_true", help="only fill workflows, send nothing")
+    r.add_argument("--judge", action="store_true", help="judge the new images afterwards")
     r.set_defaults(func=cmd_run)
+
+    jg = sub.add_parser("judge", help="let a vision LLM answer the judge questions per image")
+    jg.add_argument("--models", help="comma-separated model IDs")
+    jg.add_argument("--prompts", help="comma-separated prompt IDs")
+    jg.add_argument("--category", help="comma-separated categories")
+    jg.add_argument("--force", action="store_true", help="judge again even if the result is current")
+    jg.add_argument("--questions-only", action="store_true",
+                    help="only write missing judge questions to prompts.yaml (to review them first)")
+    jg.set_defaults(func=cmd_judge)
 
     s = sub.add_parser("serve", help="gallery and comparison in the browser")
     s.add_argument("--host", default=os.environ.get("COMFYBENCH_HOST", "127.0.0.1"),

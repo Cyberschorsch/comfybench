@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import re
+import time
 from collections import Counter
 
 import requests
@@ -186,3 +187,125 @@ def questions_content(prompt):
         parts.append(f"The person benchmarking wants to check: {prompt['check']}")
     parts.append('Reply with only a JSON list of strings, e.g. ["Is there a cat?", "Is the cat orange?"].')
     return "\n\n".join(parts)
+
+
+EXAMPLE = """Add a judge section to config.yaml, e.g.:
+
+judge:
+  url: http://127.0.0.1:11434/v1   # any OpenAI-compatible endpoint
+  model: qwen2.5vl:7b
+  quality:
+    - Is the image free of visible artifacts?"""
+
+
+def run(cfg, prompts, prompts_path, opts, emit, stop=None):
+    """Judge job for CLI and server. opts: models, prompts, categories, force, questions_only, ids.
+    Emits the same events as bench.execute."""
+    jcfg = judge_cfg(cfg)
+    if not jcfg:
+        raise bench.BenchError("No judge configured. " + EXAMPLE)
+    if opts.get("questions_only"):
+        return _questions(jcfg, prompts, prompts_path, opts, emit, stop)
+    return _judge(cfg, jcfg, prompts, opts, emit, stop)
+
+
+def _summary(total, done, failed, stopped, skipped_by=None, **extra):
+    skipped_by = dict(skipped_by or {})
+    return {"total": total, "done": done, "skipped": sum(skipped_by.values()), "failed": failed, "idle": 0,
+            "stopped": stopped, "skipped_by": skipped_by, **extra}
+
+
+def _questions(jcfg, prompts, prompts_path, opts, emit, stop):
+    pids, cats = opts.get("prompts"), opts.get("categories")
+    todo = [p for p in prompts if not p.get("judge")
+            and (not pids or p["id"] in pids) and (not cats or p.get("category") in cats)]
+    emit("plan", total=len(todo))
+    new, failed, stopped = {}, 0, False
+    for n, p in enumerate(todo, 1):
+        if stop is not None and stop.is_set():
+            stopped = True
+            break
+        emit("start", n=n, label=p["id"])
+        t0 = time.time()
+
+        def ask():
+            qs = parse_questions(chat(jcfg, questions_content(p)))
+            try:
+                check_questions(qs, p)
+            except bench.BenchError as e:
+                raise ValueError(str(e)) from None
+            return qs
+        try:
+            new[p["id"]] = retry(ask)
+        except JudgeAbort as e:
+            emit("abort", msg=str(e))
+            stopped = True
+            break
+        except (RuntimeError, ValueError) as e:
+            failed += 1
+            emit("fail", n=n, label=p["id"], msg=str(e))
+            continue
+        emit("ok", n=n, label=p["id"], secs=round(time.time() - t0, 1), rec=None,
+             note=f"{len(new[p['id']])} questions")
+    if new:   # one write, with backup – write_yaml drops comments in prompts.yaml
+        doc = bench.load_yaml(prompts_path)
+        for entry in doc.get("prompts") or []:
+            if entry.get("id") in new and not entry.get("judge"):
+                entry["judge"] = new[entry["id"]]
+        doc["prompts"] = [bench._ordered(e, bench.PROMPT_KEY_ORDER) for e in doc.get("prompts") or []]
+        bench.validate_prompts(doc)
+        bench.write_yaml(prompts_path, doc, bench.PROMPTS_HEADER)
+    summary = _summary(len(todo), len(new), failed, stopped, questions=len(new))
+    emit("end", **summary)
+    return summary
+
+
+def _label(g):
+    return " · ".join(x for x in (g.get("model"), g.get("prompt"), g.get("variant_key"), f"s{g.get('seed')}") if x)
+
+
+def _judge(cfg, jcfg, prompts, opts, emit, stop):
+    base = bench.out_dir(cfg)
+    store = bench.Store(base)
+    todo, skipped_by = select(store.generations(), prompts, jcfg, base, store.judgments(), opts)
+    emit("plan", total=len(todo))
+    done = failed = 0
+    stopped = False
+    for n, (g, info) in enumerate(todo, 1):
+        if stop is not None and stop.is_set():
+            stopped = True
+            break
+        label = _label(g)
+        emit("start", n=n, label=label)
+        t0 = time.time()
+        qs = info["fidelity"] + info["quality"]
+        try:
+            answers = retry(lambda: parse_answers(chat(jcfg, image_content(base / g["files"][0], qs)), len(qs)))
+        except JudgeAbort as e:
+            emit("abort", msg=str(e))
+            stopped = True
+            break
+        except (RuntimeError, ValueError) as e:
+            failed += 1
+            emit("fail", n=n, label=label, msg=str(e))
+            continue
+        k = len(info["fidelity"])
+        fid, qual = [list(x) for x in zip(qs[:k], answers[:k])], [list(x) for x in zip(qs[k:], answers[k:])]
+        store.set_judgment(g["id"], {
+            "at": bench.now(), "judge": jcfg["model"], "qhash": info["qhash"],
+            "fidelity": fid, "quality": qual, "fidelity_score": score(fid), "quality_score": score(qual)})
+        done += 1
+        note = f"fidelity {sum(a == 'yes' for _, a in fid)}/{len(fid)}"
+        if qual:
+            note += f" · quality {sum(a == 'yes' for _, a in qual)}/{len(qual)}"
+        emit("ok", n=n, label=label, secs=round(time.time() - t0, 1), rec=g, note=note)
+    if skipped_by:
+        emit("warn", msg="Skipped: " + ", ".join(f"{v} {k}" for k, v in sorted(skipped_by.items())))
+    if skipped_by.get("no-questions"):
+        emit("warn", msg=f"{skipped_by['no-questions']} image(s) belong to prompts without judge questions – "
+                         "run bench.py judge --questions-only first.")
+    if done:
+        bench.write_static(cfg, prompts, store)
+    summary = _summary(len(todo), done, failed, stopped, skipped_by)
+    emit("end", **summary)
+    return summary
