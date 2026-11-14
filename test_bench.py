@@ -1,6 +1,7 @@
 """Unit tests for bench.py – run with: python3 -m unittest -v"""
 import argparse
 import base64
+import itertools
 import json
 import os
 import re
@@ -583,3 +584,19 @@ class T_static_route(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GroupByModelFilesTest(unittest.TestCase):
+    def test_checkpoint_sweep_is_outermost(self):
+        sweep = bench.parse_sweep(["ckpt=a.safetensors,b.safetensors", "cfg=3,5"])
+        jobs = [(p, {**dict(zip(sweep, c))}) for p in ("p1", "p2")
+                for c in itertools.product(*sweep.values())]
+        out = bench.group_by_model_files(jobs, sweep, lambda j: j[1])
+        self.assertEqual([j[1]["ckpt"]["label"] for j in out], ["a.safetensors"] * 4 + ["b.safetensors"] * 4)
+        # order within one checkpoint is unchanged
+        self.assertEqual([(j[0], j[1]["cfg"]["label"]) for j in out[:4]], [("p1", "3"), ("p1", "5"), ("p2", "3"), ("p2", "5")])
+
+    def test_no_model_file_sweep_keeps_order(self):
+        sweep = bench.parse_sweep(["cfg=7,3"])
+        jobs = [("p1", {"cfg": v}) for v in sweep["cfg"]]
+        self.assertEqual(bench.group_by_model_files(jobs, sweep, lambda j: j[1]), jobs)

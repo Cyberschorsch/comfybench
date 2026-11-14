@@ -219,6 +219,25 @@ def parse_sweep(items):
     return out
 
 
+MODEL_FILE = re.compile(r"\.(safetensors|ckpt|pt|pth|bin|gguf|sft)$", re.I)
+
+
+def model_file_keys(sweep):
+    """Sweep keys whose values are model files (checkpoint, UNet, CLIP, VAE …) – switching them reloads a model."""
+    return [k for k, vals in sweep.items() if any(MODEL_FILE.search(str(v["label"])) for v in vals)]
+
+
+def group_by_model_files(jobs, sweep, key_of):
+    """Stable sort so all jobs of one model-file combination run before the next one (avoids model swaps).
+
+    key_of(job) → the job's sweep values ({name: {"label", "value"}})."""
+    keys = model_file_keys(sweep)
+    if not keys:
+        return jobs
+    pos = {k: {v["label"]: i for i, v in enumerate(sweep[k])} for k in keys}
+    return sorted(jobs, key=lambda j: tuple(pos[k].get(key_of(j)[k]["label"], 0) for k in keys))
+
+
 def parse_lora_combo(item):
     """Parse --lora-combo "style,detail:0.7" → (["style", "detail"], {"detail": 0.7})."""
     if not item:
@@ -901,6 +920,7 @@ def execute(cfg, prompts, opts, emit, stop=None, abort=None):
         for combo in model_lora_combos:
             combo["lora_info"] = {n: available_loras[n] for n in combo["names"]}
         
+        mjobs = []
         for p in sel_prompts:
             mode = p["_mode"]
             spec = workflow_for(model, mode)
@@ -940,7 +960,9 @@ def execute(cfg, prompts, opts, emit, stop=None, abort=None):
                     full = {**variant, **sw}
                     for seed in p.get("seeds", cfg.get("seeds", [42])):
                         for lora_combo in combos:
-                            jobs.append((mid, model, mode, (templates[wf_rel], spec["map"]), p, full, seed, mapped_img_keys, lora_combo, model_input_ref))
+                            mjobs.append((mid, model, mode, (templates[wf_rel], spec["map"]), p, full, seed, mapped_img_keys, lora_combo, model_input_ref))
+        # Checkpoint sweeps: finish every job of one checkpoint before loading the next
+        jobs += group_by_model_files(mjobs, msweep, lambda j: j[5])
 
     emit("plan", total=len(jobs))
     client_id = str(uuid.uuid4())
