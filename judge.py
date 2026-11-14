@@ -5,6 +5,7 @@ Uses bench.* at call time (bench registers itself as module "bench" before impor
 import base64
 import hashlib
 import json
+import mimetypes
 import os
 import re
 import time
@@ -16,6 +17,7 @@ import bench
 
 KEY_ENV = "COMFYBENCH_JUDGE_KEY"
 TIMEOUT = 120
+MAX_FAILS = 3   # failures in a row after which the job stops – usually the judge endpoint, not the images
 
 
 def judge_cfg(cfg):
@@ -45,15 +47,17 @@ def qhash(model, fidelity, quality):
     return hashlib.sha1(src.encode()).hexdigest()[:12]
 
 
-def _first_json(text, kind):
-    """First JSON value of type kind (dict or list) in text – models wrap it in prose, fences or thoughts."""
-    dec, text = json.JSONDecoder(), text or ""
+def _first_json(text, kind, ok=None):
+    """First JSON value of kind (dict or list) in text – models wrap it in prose, fences or thoughts.
+    ok(val) rejects a candidate, so the next one is tried."""
+    dec = json.JSONDecoder()
+    text = re.sub(r"(?is)<think(?:ing)?>.*?</think(?:ing)?>", "", text or "")
     for m in re.finditer(r"[\[{]", text):
         try:
             val, _ = dec.raw_decode(text, m.start())
         except ValueError:
             continue
-        if isinstance(val, kind):
+        if isinstance(val, kind) and (ok is None or ok(val)):
             return val
     raise ValueError("no JSON found in the answer")
 
@@ -63,7 +67,7 @@ def parse_answers(text, n):
     data = _first_json(text, dict)
     out = []
     for i in range(1, n + 1):
-        a = data.get(str(i)) if isinstance(data, dict) else None
+        a = data.get(str(i))
         a = a.strip().lower() if isinstance(a, str) else None
         if a not in ("yes", "no"):
             raise ValueError(f"answer {i} missing or not yes/no")
@@ -72,10 +76,7 @@ def parse_answers(text, n):
 
 
 def parse_questions(text):
-    data = _first_json(text, list)
-    if not isinstance(data, list) or not all(isinstance(q, str) for q in data):
-        raise ValueError("expected a JSON list of questions")
-    return data
+    return _first_json(text, list, lambda v: all(isinstance(q, str) for q in v))
 
 
 def score(pairs):
@@ -136,6 +137,23 @@ class JudgeAbort(bench.BenchError):
     """The judge endpoint is unusable (unreachable, 4xx) – the whole job stops."""
 
 
+class RateLimited(RuntimeError):
+    """A 408/429 answer: worth one more try after a short wait."""
+
+    def __init__(self, msg, wait):
+        super().__init__(msg)
+        self.wait = wait
+
+
+def retry_after(r):
+    """Seconds to wait before retrying a rate-limited request; an HTTP-date Retry-After is ignored."""
+    try:
+        s = float((getattr(r, "headers", None) or {}).get("Retry-After") or 0)
+    except (TypeError, ValueError):
+        s = 0
+    return min(30, s or 5)
+
+
 def chat(jcfg, content):
     """One chat completion; returns the reply text."""
     url = jcfg["url"].rstrip("/") + "/chat/completions"
@@ -152,8 +170,8 @@ def chat(jcfg, content):
         raise JudgeAbort(f"Judge url {jcfg['url']!r} is invalid: {e}") from None
     except requests.RequestException as e:
         raise RuntimeError(f"Judge request failed: {e}") from None
-    if r.status_code in (408, 429):   # request timeout / rate limit: worth one more try
-        raise RuntimeError(f"Judge returned HTTP {r.status_code}: {r.text[:300]}")
+    if r.status_code in (408, 429):   # request timeout / rate limit: wait, then one more try
+        raise RateLimited(f"Judge returned HTTP {r.status_code}: {r.text[:300]}", retry_after(r))
     if 400 <= r.status_code < 500:
         raise JudgeAbort(f"Judge returned HTTP {r.status_code}: {r.text[:300]}")
     if r.status_code >= 500:
@@ -164,11 +182,16 @@ def chat(jcfg, content):
         raise RuntimeError(f"Judge sent an unexpected response: {r.text[:300]}") from None
 
 
-def retry(fn):
-    """fn() with one more attempt on a transient error or an unusable answer."""
+def retry(fn, stop=None):
+    """fn() with one more attempt on a transient error or an unusable answer.
+    A rate limit is waited out first; a stop request skips the second attempt."""
     try:
         return fn()
-    except (RuntimeError, ValueError):
+    except (RuntimeError, ValueError) as e:
+        if stop is not None and stop.is_set():
+            raise
+        if isinstance(e, RateLimited):
+            time.sleep(e.wait)
         return fn()
 
 
@@ -178,9 +201,10 @@ IMAGE_INSTRUCTION = ('Answer each question about the image with yes or no. Reply
 
 def image_content(path, questions):
     data = base64.b64encode(path.read_bytes()).decode("ascii")
+    mime = mimetypes.guess_type(path.name)[0] or "image/png"
     text = IMAGE_INSTRUCTION + "\n\n" + "\n".join(f"{i}. {q}" for i, q in enumerate(questions, 1))
     return [{"type": "text", "text": text},
-            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{data}"}}]
+            {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{data}"}}]
 
 
 def questions_content(prompt):
@@ -244,7 +268,7 @@ def _questions(jcfg, prompts, prompts_path, opts, emit, stop):
 
 
 def _ask_all(jcfg, todo, new, emit, stop):
-    failed, stopped = 0, False
+    failed, stopped, streak = 0, False, 0
     for n, p in enumerate(todo, 1):
         if stop is not None and stop.is_set():
             stopped = True
@@ -260,15 +284,21 @@ def _ask_all(jcfg, todo, new, emit, stop):
                 raise ValueError(str(e)) from None
             return qs
         try:
-            new[p["id"]] = retry(ask)
+            new[p["id"]] = retry(ask, stop)
         except JudgeAbort as e:
             emit("abort", msg=str(e))
             stopped = True
             break
         except (RuntimeError, ValueError) as e:
             failed += 1
+            streak += 1
             emit("fail", n=n, label=p["id"], msg=str(e))
+            if streak >= MAX_FAILS:   # a broken endpoint, not a few bad prompts
+                emit("abort", msg=f"{streak} failures in a row, last: {e}")
+                stopped = True
+                break
             continue
+        streak = 0
         emit("ok", n=n, label=p["id"], secs=round(time.time() - t0, 1), rec=None,
              note=f"{len(new[p['id']])} questions")
     return failed, stopped
@@ -296,6 +326,7 @@ def _judge(cfg, jcfg, prompts, opts, emit, stop):
     emit("plan", total=len(todo))
     done = failed = 0
     stopped = False
+    streak = 0
     for n, (g, info) in enumerate(todo, 1):
         if stop is not None and stop.is_set():
             stopped = True
@@ -306,20 +337,27 @@ def _judge(cfg, jcfg, prompts, opts, emit, stop):
         qs = info["fidelity"] + info["quality"]
         try:
             content = image_content(base / g["files"][0], qs)
-            answers = retry(lambda: parse_answers(chat(jcfg, content), len(qs)))
+            answers = retry(lambda: parse_answers(chat(jcfg, content), len(qs)), stop)
         except JudgeAbort as e:
             emit("abort", msg=str(e))
             stopped = True
             break
         except (RuntimeError, ValueError, OSError) as e:   # OSError: image deleted meanwhile
             failed += 1
+            streak += 1
             emit("fail", n=n, label=label, msg=str(e))
+            if streak >= MAX_FAILS:   # a broken endpoint, not a few bad images
+                emit("abort", msg=f"{streak} failures in a row, last: {e}")
+                stopped = True
+                break
             continue
+        streak = 0
         k = len(info["fidelity"])
         fid, qual = [list(x) for x in zip(qs[:k], answers[:k])], [list(x) for x in zip(qs[k:], answers[k:])]
-        store.set_judgment(g["id"], {
-            "at": bench.now(), "judge": jcfg["model"], "qhash": info["qhash"],
-            "fidelity": fid, "quality": qual, "fidelity_score": score(fid), "quality_score": score(qual)})
+        entry = {"at": bench.now(), "judge": jcfg["model"], "qhash": info["qhash"],
+                 "fidelity": fid, "quality": qual, "fidelity_score": score(fid), "quality_score": score(qual)}
+        if not store.set_judgment(g["id"], entry):
+            continue   # deleted while it was being judged
         done += 1
         note = f"fidelity {sum(a == 'yes' for _, a in fid)}/{len(fid)}"
         if qual:

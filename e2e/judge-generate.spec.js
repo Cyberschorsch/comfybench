@@ -43,6 +43,26 @@ test("setup reloads after a judge job, so new questions are not overwritten", as
   await reload;
 });
 
+test("setup keeps unsaved config edits after a judge job", async ({page}) => {
+  await open(page, "setup");
+  await expect(page.locator(".su-nav button", {hasText: "General"})).toBeVisible();   // setup data loaded
+  await page.locator(".su-nav button", {hasText: "General"}).click();
+  const server = page.locator('input[placeholder="http://127.0.0.1:8188"]');
+  await server.fill("http://edited:9999");   // not saved
+  let polls = 0;
+  await page.route("**/api/judge/start", route => route.fulfill({json: {state: "running", kind: "judge", total: 1, done: 0}}));
+  await page.route("**/api/run/status", route => route.fulfill({json: polls++ < 1
+    ? {state: "running", kind: "judge", total: 1, done: 0, log: []}
+    : {state: "done", kind: "judge", total: 1, done: 1, log: []}}));
+  await page.locator("nav button", {hasText: /Generate|Judging/}).click();
+  await page.getByRole("button", {name: "Start judging"}).click();
+  await expect(page.locator("#rn-status")).toContainText("judged");
+  await expect.poll(() => polls).toBeGreaterThan(1);
+  await page.locator("nav button", {hasText: "Setup"}).click();
+  await page.locator(".su-nav button", {hasText: "General"}).click();
+  await expect(page.locator('input[placeholder="http://127.0.0.1:8188"]')).toHaveValue("http://edited:9999");
+});
+
 test("setup: judge questions are edited one per line", async ({page}) => {
   await open(page, "setup");
   await page.locator(".su-nav button", {hasText: "Prompts"}).click();

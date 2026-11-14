@@ -67,7 +67,9 @@ export async function rnPoll(){
   const active = rnActive();
   if(pollWasActive && !active) state.run.planRev = (state.run.planRev || 0) + 1;
   // A judge job may have written prompts.yaml: drop the setup copy so saving it cannot overwrite the new questions.
-  if(pollWasActive && !active && st.kind === "judge" && !state.setup.dirty.prompts) state.setup.data = null;
+  // With unsaved edits the copy stays – reloading would throw the user's work away.
+  if(pollWasActive && !active && st.kind === "judge"
+    && !state.setup.dirty.config && !state.setup.dirty.prompts) state.setup.data = null;
   pollWasActive = active;
   update();
   const doneNow = st.done || 0;

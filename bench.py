@@ -588,10 +588,11 @@ class Store:
     def set_judgment(self, gid, entry):
         with self.lock:
             if not any(g.get("id") == gid for g in self.generations()):
-                return   # deleted while it was being judged
+                return False   # deleted while it was being judged
             data = self.judgments()
             data[gid] = entry
             self._write_json(self.judge_path, data)
+            return True
 
     def set_rating(self, gid, rating, note):
         with self.lock:
@@ -1083,7 +1084,7 @@ def execute(cfg, prompts, opts, emit, stop=None, abort=None):
     return summary
 
 
-def cli_emit(total_holder):
+def cli_emit(total_holder, noun="generated"):
     def emit(ev, **d):
         tot = total_holder.get("total", "?")
         if ev == "plan":
@@ -1102,7 +1103,7 @@ def cli_emit(total_holder):
         elif ev == "abort":
             print(f"\n✗ {d['msg']}")
         elif ev == "end":
-            print(f"\nDone: {d['done']} generated, {d['skipped']} skipped, {d['failed']} failed")
+            print(f"\nDone: {d['done']} {noun}, {d['skipped']} skipped, {d['failed']} failed")
     return emit
 
 
@@ -1115,7 +1116,9 @@ def cmd_run(args):
     summary = execute(cfg, prompts, opts, cli_emit({}))
     if getattr(args, "judge", False) and not args.dry_run and not summary.get("stopped") and summary.get("new_ids"):
         print("\nJudging the new images …")
-        judge.run(cfg, prompts, args.prompts_file, {"ids": set(summary["new_ids"])}, cli_emit({}))
+        if judge.run(cfg, prompts, args.prompts_file, {"ids": set(summary["new_ids"])},
+                     cli_emit({}, "judged")).get("stopped"):
+            sys.exit(1)
     if not args.dry_run and summary.get("done"):
         print("View it: python bench.py serve")
 
@@ -1124,9 +1127,11 @@ def cmd_judge(args):
     cfg, prompts = load_all(args.config, args.prompts_file)
     opts = {"models": parse_list(args.models), "prompts": parse_list(args.prompts),
             "categories": parse_list(args.category), "force": args.force, "questions_only": args.questions_only}
-    s = judge.run(cfg, prompts, args.prompts_file, opts, cli_emit({}))
+    s = judge.run(cfg, prompts, args.prompts_file, opts, cli_emit({}, "judged"))
     if args.questions_only and s.get("questions"):
         print(f"{s['questions']} question list(s) written to {args.prompts_file} – review them, then run: bench.py judge")
+    if s["stopped"]:
+        sys.exit(1)
 
 
 class Runner:

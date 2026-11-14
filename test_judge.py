@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -212,8 +213,9 @@ class T_select(unittest.TestCase):
 
 
 class FakeResp:
-    def __init__(self, status=200, content="", body=None):
+    def __init__(self, status=200, content="", body=None, headers=None):
         self.status_code = status
+        self.headers = headers or {}
         self._body = body if body is not None else {"choices": [{"message": {"content": content}}]}
         self.text = body if isinstance(body, str) else json.dumps(self._body)
 
@@ -505,8 +507,9 @@ class T_review_fixes(RunBase):
 
     def test_set_judgment_skips_deleted_generation(self):
         self.store.append({"id": "a", "status": "ok", "files": []})
+        self.assertEqual(self.store.set_judgment("a", {"qhash": "x"}), True)
         self.store.delete_generation("a")
-        self.store.set_judgment("a", {"qhash": "x"})
+        self.assertEqual(self.store.set_judgment("a", {"qhash": "x"}), False)
         self.assertEqual(self.store.judgments(), {})
 
     def test_questions_written_before_abort_are_kept(self):
@@ -532,8 +535,54 @@ class T_review_fixes(RunBase):
         cfg = {"url": "http://h/v1", "model": "vl"}
         for code in (408, 429):
             self.patch(FakeResp(code, body="slow down"))
-            with self.assertRaises(RuntimeError):
+            with self.assertRaises(judge.RateLimited):
                 judge.chat(cfg, "q")
+
+    def test_retry_waits_for_a_rate_limit_and_succeeds(self):
+        sleeps = []
+        orig = judge.time.sleep
+        judge.time.sleep = sleeps.append
+        self.addCleanup(setattr, judge.time, "sleep", orig)
+        self.patch(FakeResp(429, body="slow"), FakeResp(content='{"1": "yes"}'))
+        cfg = {"url": "http://h/v1", "model": "vl"}
+        self.assertEqual(judge.retry(lambda: judge.parse_answers(judge.chat(cfg, "q"), 1)), ["yes"])
+        self.assertEqual(sleeps, [5])
+
+    def test_retry_after_header_is_capped(self):
+        self.assertEqual(judge.retry_after(FakeResp(429, body="", headers={"Retry-After": "2"})), 2)
+        self.assertEqual(judge.retry_after(FakeResp(429, body="", headers={"Retry-After": "600"})), 30)
+        self.assertEqual(judge.retry_after(FakeResp(429, body="", headers={"Retry-After": "Wed, 21 Oct"})), 5)
+
+    def test_retry_gives_up_when_stop_is_set(self):
+        ev = threading.Event()
+        ev.set()
+        fake = self.patch(RuntimeError("boom"))
+        with self.assertRaises(RuntimeError):
+            judge.retry(lambda: judge.chat({"url": "http://h/v1", "model": "vl"}, "q"), ev)
+        self.assertEqual(len(fake.calls), 1)
+
+    def test_parse_ignores_thoughts(self):
+        self.assertEqual(judge.parse_questions('<think>Format: ["Is it a cat?"]</think> ["Is it a dog?"]'),
+                         ["Is it a dog?"])
+        self.assertEqual(judge.parse_answers('<Think>e.g. {"1": "yes"}</Think>{"1": "no"}', 1), ["no"])
+
+    def test_parse_questions_skips_a_numbered_reference(self):
+        self.assertEqual(judge.parse_questions('As in [1], use: ["A?"]'), ["A?"])
+
+    def test_three_failures_in_a_row_stop_the_job(self):
+        for gid in ("g1", "g2", "g3", "g4"):
+            self.add_gen(gid)
+        self.patch(*[FakeResp(500, body="down")] * 8)
+        s = self.run_judge()
+        self.assertEqual((s["done"], s["failed"], s["stopped"]), (0, 3, True))
+        self.assertEqual([d for ev, d in self.events if ev == "abort"][0]["msg"].startswith("3 failures in a row"), True)
+        self.assertEqual(len(self.fake.calls), 6)   # two attempts per image, then stop
+
+    def test_image_content_uses_the_file_type(self):
+        f = self.tmp / "x.webp"
+        f.write_bytes(b"webp")
+        url = judge.image_content(f, ["Q?"])[1]["image_url"]["url"]
+        self.assertTrue(url.startswith("data:image/webp;base64,"))
 
     def test_parse_answers_braces_before_json(self):
         self.assertEqual(judge.parse_answers('Thinking {it is red}. Answer: {"1": "yes"}', 1), ["yes"])
