@@ -93,6 +93,7 @@ function Lightbox(){
       ${g.final_text ? html`<div class="sec"><b>Expanded by the model</b><button onClick=${() => copy(g.final_text)}>copy</button></div>
         <pre style="max-height:220px;overflow:auto">${g.final_text}</pre>` : ""}
       ${g.negative ? html`<b>Negative</b><pre>${g.negative}</pre>` : ""}
+      ${JudgeSection(state.data.judge_enabled && (state.data.judge || {})[g.id])}
       <b>Parameter</b><pre>${JSON.stringify(g.values || {}, null, 2)}</pre>
       ${vers.length > 1 ? html`<b>Versions of this cell</b>
         <div style="display:flex;flex-wrap:wrap;gap:4px;margin:6px 0 12px">
@@ -109,6 +110,15 @@ function Lightbox(){
       <p class="muted">Esc closes · ←/→ navigates${p.check ? html`<br/>🔎 ${p.check}` : ""}</p>
     </aside>
   </div>`;
+}
+
+function JudgeSection(e){
+  if(!e) return "";
+  const list = (title, pairs) => pairs && pairs.length ? html`<div class="muted">${title}</div>
+    <ul class="judge-ans">${pairs.map(([q, a]) => html`<li class=${a === "yes" ? "yes" : "no"}>${a === "yes" ? "✓" : "✗"} ${q}</li>`)}</ul>` : "";
+  return html`<b>Judge</b>${e.stale ? html` <span class="ver old" title="Questions, prompt or judge model changed – judged again on the next judge run">outdated</span>` : ""}
+    ${list("Fidelity", e.fidelity)}${list("Quality", e.quality)}
+    <p class="muted">${e.judge || ""} · ${(e.at || "").replace("T", " ")}</p>`;
 }
 
 export {Lightbox};

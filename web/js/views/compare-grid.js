@@ -63,14 +63,15 @@ function cellData(model, p, vkey, seeds, sink, lora, seedNote){
     const okOld = okAll.filter(x => !isCurrentRev(x));
     if(okCur.length){
       sink.ratings.push(rating(okCur[0].id));
+      sink.judge.push((state.data.judge || {})[okCur[0].id]);
       if(okCur[0].seconds) sink.secs.push(okCur[0].seconds);
       if(!sink.input && okCur[0].inputs && Object.keys(okCur[0].inputs).length) sink.input = okCur[0].inputs;
       okCur.forEach((g, i) => pages.push({kind: "img", id: g.id, src: fileUrl(g.files[0]),
-        seconds: g.seconds, note: (state.data.ratings[g.id] || {}).note, seed: s, seedNote,
+        judge: (state.data.judge || {})[g.id], seconds: g.seconds, note: (state.data.ratings[g.id] || {}).note, seed: s, seedNote,
         n: okCur.length, lora: g.lora_combo === "none" ? undefined : g.lora_combo}));
     }
     okOld.forEach(g => oldPages.push({kind: "img", id: g.id, src: fileUrl(g.files[0]),
-      seconds: g.seconds, note: (state.data.ratings[g.id] || {}).note, seed: s, seedNote, old: true,
+      judge: (state.data.judge || {})[g.id], seconds: g.seconds, note: (state.data.ratings[g.id] || {}).note, seed: s, seedNote, old: true,
       lora: g.lora_combo === "none" ? undefined : g.lora_combo}));
     if(!okAll.length && all[0]) pages.push({kind: "err", text: `Error · seed ${s}`,
       title: all[0].error || "", small: String(all[0].error || "").slice(0, 90)});
@@ -188,10 +189,10 @@ export function buildGrid(){
     cols = nc; subs.splice(0, subs.length, ...ns);
   }
   if(!cols.length) return {empty: "No images for this sub-column.", cols: [], subs: [], rows: [], flatStats: [], sub, axis, seedNote: false};
-  const flatStats = cols.flatMap((c, ci) => subs[ci].map(() => ({ratings: [], secs: []})));
+  const flatStats = cols.flatMap((c, ci) => subs[ci].map(() => ({ratings: [], secs: [], judge: []})));
 
   const body = rows.map(({p, gr, m, first}) => {
-    const sink = {ratings: [], secs: [], input: null};
+    const sink = {ratings: [], secs: [], judge: [], input: null};
     const cells = cols.map((c, ci) => {
       const model = modelOf({p, gr, m}, c);
       const vbase = {...gr.rest};
@@ -207,12 +208,12 @@ export function buildGrid(){
         if(axis === "lora" && !modelUsesLora(model, c.lora)) return {kind: "missing", text: "LoRA not configured for this model"};
         if(sub === "lora" && !modelUsesLora(model, sv.lora)) return {kind: "missing", text: "LoRA not configured"};
         const seeds = sub === "seed" ? [sv.s] : axis === "seed" ? [c.s] : seedsSel;
-        const local = {ratings: [], secs: [], input: sink.input};
+        const local = {ratings: [], secs: [], judge: [], input: sink.input};
         const cellKey = [c.id, si, p.id, gr.key || gr.label || "", m ? m.id : "", focus || ""].join("\u0003");
         const sc = cellData(model, p, vkey, seeds, local,
           axis === "lora" ? c.lora : sub === "lora" ? sv.lora : undefined, seedNote);
         sc.key = cellKey;
-        st.ratings.push(...local.ratings); st.secs.push(...local.secs);
+        st.ratings.push(...local.ratings); st.secs.push(...local.secs); st.judge.push(...local.judge);
         sink.input = local.input;
         return sc;
       });

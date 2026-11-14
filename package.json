@@ -2,6 +2,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test:unit": "node --test web/tests/*.test.js"
+    "test:unit": "node --test web/tests/*.test.js",
+    "test:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.1"
   }
 }

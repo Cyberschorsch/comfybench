@@ -4,6 +4,14 @@ import {fileUrl} from "cb/api.js";
 import {openLightbox} from "cb/views/lightbox.js";
 import {Stars, LoraBadge, VarChips} from "cb/components/common.js";
 import {normalizeGridCfg, buildGrid, setDimension, visiblePages} from "cb/views/compare-grid.js";
+import {badge, aggregate} from "cb/judge.js";
+
+function JudgeBadge(e){
+  const b = state.data.judge_enabled && badge(e);
+  if(!b) return "";
+  return html`<span class=${"jb" + (b.stale ? " stale" : "")}
+    title=${b.title + (b.stale ? "\noutdated: questions or prompt changed" : "")}>${b.text}</span> `;
+}
 
 const avg = a => a.reduce((x, y) => x + y, 0) / a.length;
 
@@ -69,7 +77,7 @@ function pageImg(im, row, sc, pages, pi){
   return [html`<img loading="lazy" src=${im.src} alt=""
     onClick=${() => openLightbox(im.id, row.ids)} />`,
     html`<div class="below">${Stars({id: im.id})}<span>${im.note ? "📝 " : ""}${LoraBadge({g: {lora_combo: im.lora || "none"}})}
-      ${old}${!old && im.n > 1 ? html`<span class="ver" title="${im.n} current versions">v${im.n}</span> ` : ""}
+      ${JudgeBadge(im.judge)}${old}${!old && im.n > 1 ? html`<span class="ver" title="${im.n} current versions">v${im.n}</span> ` : ""}
       ${im.seconds != null ? im.seconds : "–"}s${im.seedNote && pages.length <= 1 ? ` · ${im.seed}` : ""}</span></div>`, pager];
 }
 
@@ -146,6 +154,13 @@ export function Compare(){
     ? html`<td>${avg(st.ratings).toFixed(2)} ★ <span style="font-weight:400;color:var(--muted)">(${st.ratings.length})</span></td>`
     : html`<td>–</td>`);
 
+  const pct = a => a.n ? html`<td>${Math.round(a.mean * 100)}% <span style="font-weight:400;color:var(--muted)">(${a.n})</span></td>`
+    : html`<td>–</td>`;
+  const judgeAgg = state.data.judge_enabled ? flatStats.map(st => aggregate(st.judge)) : [];
+  const judgeFoot = state.data.judge_enabled ? [
+    html`<tr><td>Ø Fidelity (judge)</td>${judgeAgg.map(a => pct(a.fidelity))}</tr>`,
+    html`<tr><td>Ø Quality (judge)</td>${judgeAgg.map(a => pct(a.quality))}</tr>`] : null;
+
   const body = rows.map(row => {
     const {p, gr, first} = row;
     const headV = first ? html`<div><span class="pid">${p.id}</span>${p.category ? html`<span class="tag">${p.category}</span>` : ""}
@@ -165,6 +180,6 @@ export function Compare(){
       <thead><tr><th rowspan=${sub === "none" ? 1 : 2}>Prompt</th>${head1}</tr>
       ${head2.length ? html`<tr>${head2}</tr>` : null}</thead>
       <tbody>${body}</tbody>
-      <tfoot><tr><td>Average rating (visible)</td>${foot}</tr></tfoot>
+      <tfoot><tr><td>Average rating (visible)</td>${foot}</tr>${judgeFoot}</tfoot>
     </table></div>`];
 }
