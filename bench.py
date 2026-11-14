@@ -34,6 +34,9 @@ from urllib.parse import unquote, urlparse
 import requests
 import yaml
 
+sys.modules.setdefault("bench", sys.modules[__name__])  # run as a script: judge.py's "import bench" gets this module
+import judge  # noqa: E402
+
 CODE = Path(__file__).resolve().parent
 # Data folder (config.yaml, prompts.yaml, workflows/, inputs/, results/). Default: next to the script.
 ROOT = Path(os.environ.get("COMFYBENCH_HOME") or CODE).resolve()
@@ -492,6 +495,7 @@ class Store:
         self.base = base
         self.gen_path = base / "generations.jsonl"
         self.rat_path = base / "ratings.json"
+        self.judge_path = base / "judge.json"
 
     def generations(self):
         if not self.gen_path.exists():
@@ -550,15 +554,39 @@ class Store:
                     f.write(json.dumps(g, ensure_ascii=False) + "\n")
             tmp.replace(self.gen_path)
 
-            # 2. Delete the rating
-            ratings = self.ratings()
-            if gid in ratings:
-                del ratings[gid]
-                tmp = self.rat_path.with_suffix(".tmp")
-                tmp.write_text(json.dumps(ratings, indent=1, ensure_ascii=False), encoding="utf-8")
-                tmp.replace(self.rat_path)
+            # 2. Delete the rating and the judge entry
+            for path in (self.rat_path, self.judge_path):
+                data = self._read_json(path)
+                if gid in data:
+                    del data[gid]
+                    self._write_json(path, data)
 
             return True
+
+    @staticmethod
+    def _read_json(path):
+        if not path.exists():
+            return {}
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except ValueError:
+            return {}
+
+    @staticmethod
+    def _write_json(path, data):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(path)
+
+    def judgments(self):
+        return self._read_json(self.judge_path)
+
+    def set_judgment(self, gid, entry):
+        with self.lock:
+            data = self.judgments()
+            data[gid] = entry
+            self._write_json(self.judge_path, data)
 
     def set_rating(self, gid, rating, note):
         with self.lock:
@@ -1913,7 +1941,7 @@ def ordered_config(cfg):
 
 CONFIG_HEADER = "# ComfyBench – Configuration. Editable in the gallery under \"Setup\" or by hand (see README.md).\n\n"
 PROMPTS_HEADER = "# ComfyBench – Prompt set. Editable in the gallery under \"Setup\" or by hand (see README.md).\n\n"
-PROMPT_KEY_ORDER = ["id", "category", "prompt", "negative", "check", "image", "width", "height",
+PROMPT_KEY_ORDER = ["id", "category", "prompt", "negative", "check", "judge", "image", "width", "height",
                     "seeds", "mode", "vars", "vary", "params", "model_params"]
 
 
@@ -1948,6 +1976,13 @@ def validate_config(cfg):
                 raise BenchError(f"Model {mid} · {mode}: workflow spec is incomplete")
             if sp and not (ROOT / sp["file"]).is_file():
                 raise BenchError(f"Model {mid} · {mode}: file {sp['file']} does not exist")
+    jc = cfg.get("judge")
+    if jc is not None:
+        if not isinstance(jc, dict) or not all(isinstance(jc.get(k), str) and jc[k].strip() for k in ("url", "model")):
+            raise BenchError("judge needs url and model")
+        q = jc.get("quality")
+        if q is not None and not (isinstance(q, list) and all(isinstance(x, str) and x.strip() for x in q)):
+            raise BenchError("judge.quality must be a list of questions")
     seeds = cfg.get("seeds")
     if seeds is not None and not (isinstance(seeds, list) and all(isinstance(x, int) for x in seeds) and seeds):
         raise BenchError("seeds must be a list of integers")
@@ -1968,6 +2003,8 @@ def validate_prompts(doc):
         if not str(p.get("prompt", "")).strip():
             raise BenchError(f"{pid}: prompt text is missing")
         expand_variants(p, shared)
+        if "judge" in p:
+            judge.check_questions(p["judge"], p)
 
 
 def list_files(sub, exts):
