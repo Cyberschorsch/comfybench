@@ -14,11 +14,16 @@ export function readValue(type, raw){
     return xs.length ? xs : undefined;
   }
   if(type === "keep") return raw;
+  if(type === "lines"){
+    const xs = String(raw).split("\n").map(s => s.trim()).filter(Boolean);
+    return xs.length ? xs : undefined;
+  }
   return raw === "" ? undefined : raw;
 }
 // Formatted display value (old fieldVal :1005-1009).
 function displayVal(v, type){
   if(type === "seeds") return Array.isArray(v) ? v.join(", ") : "";
+  if(type === "lines") return Array.isArray(v) ? v.join("\n") : "";
   return showScalar(v);
 }
 

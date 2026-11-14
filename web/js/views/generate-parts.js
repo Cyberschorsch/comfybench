@@ -270,12 +270,13 @@ export function rnStatusSec(onStop, onKill){
   const finished = (st.done || 0) + (st.skipped || 0) + (st.failed || 0) + (st.idle || 0);
   const pct = st.total ? Math.round(100 * finished / st.total) : 0;
   const active = rnActive();
-  const dry = st.dry_run ? " · Dry run" : "";
+  const dry = st.dry_run && st.kind !== "judge" ? " · Dry run" : "";
+  const judging = st.kind === "judge";
   return html`<div class="rn-card" id="rn-status">
-    <h2>Status <span class="rn-badge rn-${st.state}">${labels[st.state] || st.state}${dry}</span></h2>
+    <h2>${judging ? "Judging" : "Status"} <span class="rn-badge rn-${st.state}">${labels[st.state] || st.state}${dry}</span></h2>
     ${st.state === "idle" ? html`<p class="hint">No run yet since the gallery started. Runs from the terminal (<code>bench run</code>) do not show up here, but their images do in the gallery.</p>` :
     html`<div class="rn-bar"><div style="width:${pct}%"></div></div>
-    <div class="rn-nums"><span><b>${st.done || 0}</b> ${st.dry_run ? "filled" : "generated"}</span><span><b>${st.skipped || 0}</b> skipped</span><span class=${st.failed ? "rn-errn" : ""}><b>${st.failed || 0}</b> errors</span><span>${finished}/${st.total || 0}</span>
+    <div class="rn-nums"><span><b>${st.done || 0}</b> ${judging ? "judged" : st.dry_run ? "filled" : "generated"}</span><span><b>${st.skipped || 0}</b> skipped</span><span class=${st.failed ? "rn-errn" : ""}><b>${st.failed || 0}</b> errors</span><span>${finished}/${st.total || 0}</span>
       ${active && st.eta != null ? html` <span>about ${fmtDur(st.eta)} left</span>` : ""}</div>
     ${st.current ? html`<div class="rn-cur"><span class="rn-spin"></span>${st.current}</div>` : ""}
     ${st.msg && st.state === "error" ? html`<div class="su-msg err">${st.msg}</div>` : ""}

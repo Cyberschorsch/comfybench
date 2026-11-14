@@ -130,6 +130,8 @@ function PromptEdit({p}){
         }}><option value="model">Model default</option><option value="own">own (may be empty)</option></select>
         ${ownNeg ? html`<${Field} root="doc" path=${P("negative")} type="keep" as="textarea" rows="2" />` : ""}</div>
       <label>What to check</label><${Field} root="doc" path=${P("check")} />
+      ${state.data && state.data.judge_enabled ? html`<label>Judge questions</label><div><${Field} root="doc" path=${P("judge")} type="lines" as="textarea" rows="4" class="su-judge" />
+        <div class="hint">One yes/no question per line, {variable} allowed. Empty: Generate → Judge → "Questions only" writes them.</div></div>` : ""}
       <label>Size</label><div class="row"><${Field} root="doc" path=${P("width")} type="scalar" class="short" placeholder="Width" />×<${Field} root="doc" path=${P("height")} type="scalar" class="short" placeholder="Height" /><span class="hint">empty = default</span></div>
       <label>Seeds</label><div class="row"><${Field} root="doc" path=${P("seeds")} type="seeds" style="max-width:260px" placeholder=${"Default: " + (su.cfg.seeds || [42]).join(", ")} /></div>
       <label>Input image</label><div class="row"><select value=${p.image || ""} style="max-width:320px" onChange=${e => promptImage(p, e)}>

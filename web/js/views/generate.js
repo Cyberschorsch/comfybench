@@ -40,6 +40,7 @@ export function rnBody(){
   }));
   const body = {models: state.ui.rnModels, prompts: state.ui.rnPrompts, sweep,
     force: !!state.ui.rnForce, dry_run: !!state.ui.rnDry, images: state.ui.rnImages || {}};
+  if(state.data.judge_enabled && state.ui.rnJudge) body.judge = true;
   if(Object.keys(byModel).length) body.sweep_by_model = byModel;
   if(state.ui.rnLoraMode === "combo"){
     const names = rnLoraUnion().map(x => x.name).filter(n => state.ui.rnLoraSel.includes(n));
@@ -65,6 +66,8 @@ export async function rnPoll(){
   state.run.status = st;
   const active = rnActive();
   if(pollWasActive && !active) state.run.planRev = (state.run.planRev || 0) + 1;
+  // A judge job may have written prompts.yaml: drop the setup copy so saving it cannot overwrite the new questions.
+  if(pollWasActive && !active && st.kind === "judge" && !state.setup.dirty.prompts) state.setup.data = null;
   pollWasActive = active;
   update();
   const doneNow = st.done || 0;
@@ -81,7 +84,7 @@ export function navRunLabel(){
   const st = state.run.status;
   if(!st || !rnActive()) return "Generate";
   const f = (st.done || 0) + (st.skipped || 0) + (st.failed || 0) + (st.idle || 0);
-  return `Generate · ${f}/${st.total || 0}`;
+  return `${st.kind === "judge" ? "Judging" : "Generate"} · ${f}/${st.total || 0}`;
 }
 
 async function onStart(){
@@ -93,6 +96,30 @@ async function onStart(){
     update();
     rnPoll();
   } catch(e){ state.run.planErr = e.message; update(); }
+}
+
+async function onJudgeStart(){
+  const ui = state.ui;
+  try {
+    state.run.status = await api("POST", "api/judge/start", {models: ui.rnModels, prompts: ui.rnPrompts,
+      force: !!ui.jgForce, questions_only: !!ui.jgQOnly});
+    state.run.lastDone = -1;
+    update();
+    rnPoll();
+  } catch(e){ toast(e.message); }
+}
+
+// Judge: uses the model/prompt selection above. "Questions only" writes missing lists to prompts.yaml.
+function rnJudgeSec(){
+  const ui = state.ui;
+  if(!state.data.judge_enabled) return "";
+  const can = !rnActive() && ui.rnModels.length && ui.rnPrompts.length;
+  return html`<div class="rn-sec" id="rn-judge"><div class="rn-h">Judge</div>
+    <p class="hint">A vision LLM answers the judge questions of the selected prompts for the selected models' images.</p>
+    <label class="rn-item"><input type="checkbox" checked=${ui.jgQOnly} onChange=${e => { ui.jgQOnly = e.currentTarget.checked; update(); }} /><span>Questions only<small>write missing judge questions to prompts.yaml (rewrites the file, backup in .backups/) – review them before judging</small></span></label>
+    <label class="rn-item"><input type="checkbox" checked=${ui.jgForce} disabled=${ui.jgQOnly} onChange=${e => { ui.jgForce = e.currentTarget.checked; update(); }} /><span>Judge current results again</span></label>
+    <button disabled=${!can} onClick=${onJudgeStart}>${ui.jgQOnly ? "Write questions" : "Start judging"}</button>
+  </div>`;
 }
 
 async function onStop(hard){
@@ -195,9 +222,11 @@ export function Generate(){
         ${rnSweepsSec()}
         ${rnLoraSec()}
         <div class="rn-sec"><label class="rn-item"><input type="checkbox" checked=${ui.rnForce} onChange=${e => { ui.rnForce = e.currentTarget.checked; update(); }} /><span>Regenerate existing images anyway<small>creates additional versions</small></span></label>
-          <label class="rn-item"><input type="checkbox" checked=${ui.rnDry} onChange=${e => { ui.rnDry = e.currentTarget.checked; update(); }} /><span>Dry run without ComfyUI<small>only fills the workflows (results/_dryrun)</small></span></label></div>
+          <label class="rn-item"><input type="checkbox" checked=${ui.rnDry} onChange=${e => { ui.rnDry = e.currentTarget.checked; update(); }} /><span>Dry run without ComfyUI<small>only fills the workflows (results/_dryrun)</small></span></label>
+          ${state.data.judge_enabled ? html`<label class="rn-item"><input type="checkbox" checked=${ui.rnJudge} onChange=${e => { ui.rnJudge = e.currentTarget.checked; update(); }} /><span>Judge afterwards<small>the judge checks the new images when the run is done</small></span></label>` : ""}</div>
         ${rnPlanSec()}
         ${rnStartBtn()}
+        ${rnJudgeSec()}
       </div>
       ${rnStatusSec(onStop, onKill)}
     </div>
