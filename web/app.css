@@ -27,12 +27,12 @@ button{cursor:pointer}
 main{display:none}main.on{display:block}
 .wrap{overflow-x:auto;padding:0 16px 40px}
 /* The compare grid scrolls in its own box so its header row can stay pinned below the page header */
-#view-grid .wrap{height:calc(100vh - var(--vhdr,140px));overflow:auto}
+#view-grid .wrap{height:calc(100vh - var(--vhdr,140px));overflow:auto;padding-left:0;margin-left:16px}
 table{border-collapse:separate;border-spacing:0;margin-top:8px}
 th,td{vertical-align:top;padding:8px}
 tbody tr.first td{border-top:1px solid var(--line);padding-top:14px}
 thead th{position:sticky;top:0;z-index:2;background:var(--bg);text-align:left;font-weight:600;white-space:nowrap}
-thead th:first-child{left:0;z-index:3}
+thead tr:first-child th:first-child{left:0;z-index:3}
 thead tr+tr th{top:var(--h1,35px)}
 thead th .meta{display:block;color:var(--muted);font-weight:400;font-size:12px}
 thead th.g1{text-align:left;border-left:1px solid var(--line);padding-left:10px}

@@ -137,9 +137,9 @@ export function Compare(){
         onClick=${e => { e.preventDefault(); setFocus(c.m.id); }}>${c.label}</a>`
       : c.label;
     if(sub === "none"){
-      head1.push(html`<th key=${"h-" + ci}>${label}${meta ? html`<span class="meta">${meta}</span>` : ""}</th>`);
+      head1.push(html`<th key=${"h-" + ci} title=${c.full || ""}>${label}${meta ? html`<span class="meta">${meta}</span>` : ""}</th>`);
     } else {
-      head1.push(html`<th class="g1" key=${"g1-" + ci} colspan=${subs[ci].length}>
+      head1.push(html`<th class="g1" key=${"g1-" + ci} colspan=${subs[ci].length} title=${c.full || ""}>
         ${label}${meta ? html`<span class="meta">${meta}</span>` : ""}</th>`);
       subs[ci].forEach((sv, si) => {
         const st = flatStats[start + si];

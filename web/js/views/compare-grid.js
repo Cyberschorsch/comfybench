@@ -56,13 +56,19 @@ function cellData(model, p, vkey, seeds, sink, lora, seedNote){
   if(!model.modes.includes(p.mode)) return {kind: "missing", text: `no ${p.mode} workflow`};
   const pages = [], oldPages = [];
   for(const s of seeds){
-    const all = (state.idx.byCell.get(lora === undefined || lora === "none"
+    let all = (state.idx.byCell.get(lora === undefined || lora === "none"
       ? ck(model.id, p.id, vkey, s) : ckL(model.id, p.id, vkey, s, lora)) || []);
+    // The plain key holds every LoRA combination: a "base" column takes only images without
+    // LoRA; without a LoRA dimension those come first, so they are the page shown and rated.
+    const isBase = x => loraKey(x) === "none";
+    if(lora === "none") all = all.filter(isBase);
+    else if(lora === undefined) all = [...all.filter(isBase), ...all.filter(x => !isBase(x))];
     const okAll = all.filter(x => x.status === "ok");
     const okCur = okAll.filter(isCurrentRev);
     const okOld = okAll.filter(x => !isCurrentRev(x));
     if(okCur.length){
-      sink.ratings.push(rating(okCur[0].id));
+      const r = rating(okCur[0].id);
+      if(r) sink.ratings.push(r);   // unrated images stay out of the average
       sink.judge.push((state.data.judge || {})[okCur[0].id]);
       if(okCur[0].seconds) sink.secs.push(okCur[0].seconds);
       if(!sink.input && okCur[0].inputs && Object.keys(okCur[0].inputs).length) sink.input = okCur[0].inputs;
@@ -80,6 +86,13 @@ function cellData(model, p, vkey, seeds, sink, lora, seedNote){
     return {kind: "missing", text: seeds.length > 1 ? "not generated yet" : `not generated yet · seed ${seeds[0]}`};
   }
   return {kind: "pages", pages, oldPages, nOld: okOldCount(oldPages)};
+}
+
+// Short labels for file values; values that share a file name keep their folder.
+function valLabels(vals){
+  const short = vals.map(shortVal);
+  return vals.map((v, i) => short.indexOf(short[i]) !== short.lastIndexOf(short[i])
+    ? String(v).replace(/\.(safetensors|ckpt|pt|gguf|sft)$/i, "") : short[i]);
 }
 
 function okOldCount(oldPages){ return new Set(oldPages.map(x => x.id)).size; }
@@ -124,9 +137,10 @@ export function buildGrid(){
     const hasDefault = D.generations.some(g => g.status === "ok" && g.mode !== "import" && (g.files || []).length
       && !hidden.includes(g.model) && (!focus || g.model === focus) && (g.variant || {})[axVar] === undefined);
     if(hasDefault && labels.length) labels.push("\u0000default");   // un-swept images last
-    cols = labels.map(l => l === "\u0000default"
+    const short = valLabels(labels);
+    cols = labels.map((l, i) => l === "\u0000default"
       ? {id: "v:default", label: "default", dflt: true}
-      : {id: "v:" + l, label: shortVal(axVar) + ": " + shortVal(l), full: axVar + ": " + l, l});
+      : {id: "v:" + l, label: shortVal(axVar) + ": " + short[i], full: axVar + ": " + l, l});
   }
 
   // Rows: Prompt × (variant without column/sub variable) × (model, when model is not the column)
@@ -178,7 +192,8 @@ export function buildGrid(){
       if(!seen.has(v)){ seen.add(v); out.push(v); }
     }
     if(hasDefault) out.push("\u0000default");   // un-swept images last
-    return out.map(v => v === "\u0000default" ? {val: "", label: "default"} : {val: v, label: shortVal(v), full: v});
+    const short = valLabels(out);
+    return out.map((v, i) => v === "\u0000default" ? {val: "", label: "default"} : {val: v, label: short[i], full: v});
   });
 
   const seedNote = cfg.seed === "all" && axis !== "seed" && sub !== "seed";
