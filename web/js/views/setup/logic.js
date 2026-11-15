@@ -76,7 +76,8 @@ export function expandJS(p){
   return combos.map(c => Object.fromEntries(names.map((n, i) => [n, {label: c[i][0], value: c[i][1]}])));
 }
 export const renderVarsJS = (t, v) =>
-  String(t || "").replace(/(?<!\{)\{(\w+)\}(?!\})/g, (m, n) => n in v ? String(v[n].value) : m);
+  String(t || "").replace(/(?<!\{)\{(\w+)(?::(\w+))?\}(?!\})/g,
+    (m, n, part) => n in v && (!part || part === "label") ? String(v[n][part || "value"]) : m);
 export function defnToText(d){
   if(Array.isArray(d)) return d.map(showScalar).join("\n");
   if(d && typeof d === "object") return Object.entries(d).map(([k, v]) => `${k}: ${v}`).join("\n");

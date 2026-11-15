@@ -31,6 +31,17 @@ class T_check_questions(unittest.TestCase):
             with self.assertRaises(BenchError, msg=repr(qs)):
                 judge.check_questions(qs, self.P)
 
+    def test_check_questions_label_suffix(self):
+        judge.check_questions(["Is she {emotion:label}?", "Is she {emotion}?", "Is it a photo?"], self.P)
+
+    def test_check_questions_unknown_placeholder_with_suffix(self):
+        with self.assertRaises(BenchError):
+            judge.check_questions(["Is it {color:label}?"], self.P)
+
+    def test_check_questions_only_label_suffix_allowed(self):
+        with self.assertRaises(BenchError):
+            judge.check_questions(["Is it {emotion:value}?"], self.P)
+
 
 class T_validate(unittest.TestCase):
     def test_validate_config_judge(self):
@@ -283,12 +294,37 @@ class T_http(PatchPost):
         import base64
         self.assertEqual(base64.b64decode(url.split(",", 1)[1]), b"\x89PNGdata")
 
+    def test_text_vars_sees_prompt_and_negative(self):
+        self.assertEqual(judge.text_vars({"prompt": "a {emotion} cat", "vars": {"emotion": ["x"]}}), {"emotion"})
+        self.assertEqual(judge.text_vars({"prompt": "a cat {emotion:label}", "vars": {"emotion": ["x"]}}), {"emotion"})
+        self.assertEqual(judge.text_vars({"prompt": "a cat", "negative": "no {emotion}",
+                                          "vars": {"emotion": ["x"]}}), {"emotion"})
+
+    def test_text_vars_skips_workflow_values(self):
+        self.assertEqual(judge.text_vars({"prompt": "a cat", "vars": {"denoise": [0.5, 0.7]}}), set())
+
     def test_questions_content(self):
         p = mk_prompt(check="Laugh believable?")
         text = judge.questions_content(p)
         self.assertIn("a {emotion} cat", text)
         self.assertIn("{emotion}", text)
         self.assertIn("Laugh believable?", text)
+
+    def test_questions_content_shows_labels_values_and_prefix(self):
+        p = mk_prompt()
+        text = judge.questions_content(p)
+        self.assertIn("{emotion} = laughing (laughing hard)", text)   # the model must see what gets filled in
+        self.assertIn("{emotion:label}", text)
+
+    def test_questions_content_caps_long_value_lists(self):
+        p = mk_prompt(vars_={"emotion": {str(i): f"value {i}" for i in range(20)}})
+        text = judge.questions_content(p)
+        self.assertIn("(value 5)", text)
+        self.assertNotIn("(value 6)", text)
+
+    def test_questions_content_omits_repeated_label(self):
+        p = mk_prompt(vars_={"age": [18, 30]})
+        self.assertIn("{age} = 18, 30", judge.questions_content(p))
 
     def test_chat_abort_on_connection_error_and_4xx(self):
         cfg = {"url": "http://h/v1", "model": "vl"}
@@ -400,6 +436,23 @@ class T_run(RunBase):
         self.patch(FakeResp(content='["Is it {color}?"]'), FakeResp(content='["Is it {color}?"]'))
         s = self.run_judge(questions_only=True)
         self.assertEqual((s["questions"], s["failed"]), (0, 1))
+        self.assertEqual(self.prompts_path.read_text(encoding="utf-8"), PROMPTS_YAML)
+
+    def test_questions_ignoring_the_variable_are_asked_again(self):
+        # cat's text varies by {emotion} – a list without it is asked again
+        self.patch(FakeResp(content='["Is it a cat?"]'),
+                   FakeResp(content='["Is the cat {emotion:label}?", "Is it a cat?"]'))
+        s = self.run_judge(questions_only=True)
+        self.assertEqual((s["questions"], s["failed"]), (1, 0))
+        by = {p["id"]: p for p in bench.load_yaml(self.prompts_path)["prompts"]}
+        self.assertEqual(by["cat"]["judge"], ["Is the cat {emotion:label}?", "Is it a cat?"])
+        self.assertEqual(len(self.fake.calls), 2)
+
+    def test_questions_ignoring_the_variable_fail_after_retry(self):
+        self.patch(FakeResp(content='["Is it a cat?"]'), FakeResp(content='["Is it a cat?"]'))
+        s = self.run_judge(questions_only=True)
+        self.assertEqual((s["questions"], s["failed"]), (0, 1))
+        self.assertIn("emotion", [d.get("msg", "") for ev, d in self.events if ev == "fail"][0])
         self.assertEqual(self.prompts_path.read_text(encoding="utf-8"), PROMPTS_YAML)
 
     def test_judge_does_not_touch_prompts_yaml(self):

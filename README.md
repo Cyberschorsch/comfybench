@@ -128,6 +128,7 @@ prompts:
 ```
 
 - **`vary`**: `product` (default, all combinations), `zip` (lists pairwise) or `single` (first values are the base, each variable is varied on its own).
+- `{variable}` inserts the value, `{variable:label}` the label – in the prompt, the negative and the judge questions.
 - A variable named like a workflow value (`denoise`, `cfg`, `steps`, …) controls that value directly, e.g. for a denoise series.
 - **img2img**: put the image into `inputs/` and set `image: file.png`. The prompt then uses each model's `img2img` workflow; models without one are skipped. Other modes work the same way (`mode: inpaint` with `workflows: {inpaint: …}`).
 - When saving from the UI, comments in the YAML files are replaced by a short header and a backup goes to `.backups/` (last 20).
@@ -176,9 +177,9 @@ Everything here can also be set in the gallery under **Setup → Judge**, includ
 
 An API key, if needed, never goes into the config: either set the environment variable `COMFYBENCH_JUDGE_KEY` (with Docker: in `.env`), or enter it in Setup → Judge, which stores it in `.judge-key` in the data folder (readable only by you). The environment variable takes precedence.
 
-The fidelity questions live per prompt in `prompts.yaml` under `judge:`; variables work as in the prompt (`Is she {emotion}?`):
+The fidelity questions live per prompt in `prompts.yaml` under `judge:`; variables work as in the prompt, `{emotion}` inserts the value and `{emotion:label}` the short label (`Is she {emotion:label}?` → `Is she angry?`):
 
-1. `python bench.py judge --questions-only` lets the LLM write questions for prompts that have none, using the prompt and its `check` text. This rewrites `prompts.yaml` (comments are lost, a backup goes to `.backups/`); existing lists are never touched.
+1. `python bench.py judge --questions-only` lets the LLM write questions for prompts that have none, using the prompt, its variables (labels and values) and its `check` text. A variable that occurs in the prompt text must appear in at least one question, otherwise the list is asked for again and dropped after the second try. This rewrites `prompts.yaml` (comments are lost, a backup goes to `.backups/`); existing lists are never touched.
 2. Review the questions – in `prompts.yaml` or in Setup → Prompts. Delete a list to have it generated again.
 3. `python bench.py judge` judges every image that has no current result. Filters: `--models`, `--prompts`, `--category`; `--force` judges again.
 

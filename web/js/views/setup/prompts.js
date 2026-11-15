@@ -9,6 +9,10 @@ import {showTemplateModal, saveCurrentAsTemplate, showTemplateManager} from "cb/
 
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
+// {emotion} and {emotion:label}; a lookbehind keeps {{workflow}} placeholders out.
+const VAR_RE = /(?<!\{)\{(\w+)(?::\w+)?\}(?!\})/g;
+const namesIn = t => new Set([...String(t || "").matchAll(VAR_RE)].map(x => x[1]));
+
 // ------------------------------------------------------------------ preview (:1483-1497)
 export function Preview({p}){
   const su = state.setup;
@@ -17,9 +21,9 @@ export function Preview({p}){
   const mode = promptModeJS(p);
   const models = Object.values(su.cfg.models).filter(m => m.enabled !== false && modesOf(m).includes(mode)).length;
   const seeds = (p.seeds || su.cfg.seeds || [42]).length;
-  const used = new Set([...String(p.prompt || "").matchAll(/(?<!\{)\{(\w+)\}(?!\})/g)].map(x => x[1]));
+  const used = namesIn(p.prompt);
   const undef = [...used].filter(n => !(n in (p.vars || {})));
-  const notInText = Object.keys(p.vars || {}).filter(n => !used.has(n) && !String(p.negative || "").includes(`{${n}}`));
+  const notInText = Object.keys(p.vars || {}).filter(n => !used.has(n) && !namesIn(p.negative).has(n));
   return html`<b>${vs.length} variant${vs.length === 1 ? "" : "s"}</b> × ${seeds} Seed${seeds === 1 ? "" : "s"} × ${models} model${models === 1 ? "" : "s"} (${mode}) = <b>${vs.length * seeds * models} images</b>
     ${undef.length ? html`<div class="warnline">In the text but not defined: ${undef.map(n => `{${n}}`).join(", ")}</div>` : ""}
     ${notInText.length ? html`<div class="hint">Not in the text: ${notInText.join(", ")} – it only applies if a workflow value has that name.</div>` : ""}
@@ -131,7 +135,7 @@ function PromptEdit({p}){
         ${ownNeg ? html`<${Field} root="doc" path=${P("negative")} type="keep" as="textarea" rows="2" />` : ""}</div>
       <label>What to check</label><${Field} root="doc" path=${P("check")} />
       ${state.data && state.data.judge_enabled ? html`<label>Judge questions</label><div><${Field} root="doc" path=${P("judge")} type="lines" as="textarea" rows="4" class="su-judge" />
-        <div class="hint">One yes/no question per line, {variable} allowed. Empty: Generate → Judge → "Questions only" writes them.</div></div>` : ""}
+        <div class="hint">One yes/no question per line, {variable} or {variable:label} allowed. Empty: Generate → Judge → "Questions only" writes them.</div></div>` : ""}
       <label>Size</label><div class="row"><${Field} root="doc" path=${P("width")} type="scalar" class="short" placeholder="Width" />×<${Field} root="doc" path=${P("height")} type="scalar" class="short" placeholder="Height" /><span class="hint">empty = default</span></div>
       <label>Seeds</label><div class="row"><${Field} root="doc" path=${P("seeds")} type="seeds" style="max-width:260px" placeholder=${"Default: " + (su.cfg.seeds || [42]).join(", ")} /></div>
       <label>Input image</label><div class="row"><select value=${p.image || ""} style="max-width:320px" onChange=${e => promptImage(p, e)}>

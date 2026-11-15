@@ -3,11 +3,13 @@
 # optional: negative, width, height, seeds, params (for all models),
 #           model_params: { <model-id>: { steps: 40 } }  (only for one model)
 #
-# Variables:  {name} in prompt/negative, values under vars:
+# Variables:  {name} in prompt/negative/judge, values under vars:
 #   vars:
 #     emotion: [laughing, angry]                 # List: value = text
 #     emotion: { laughing: "laughing heartily" } # Label: text to insert
 #     emotion: $emotions                         # shared set from top
+#   {name} inserts the value, {name:label} the label (e.g. in a judge question:
+#   "Is she {emotion:label}?" -> "Is she laughing?")
 #   vary: product (all combinations, default) | zip (lists pairwise)
 #         | single (first values = base, each variable varied individually)
 #   A variable named like a workflow placeholder

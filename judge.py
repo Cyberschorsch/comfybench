@@ -85,9 +85,12 @@ def check_questions(qs, prompt):
     for q in qs:
         if not isinstance(q, str) or not q.strip():
             raise bench.BenchError(f"{pid}: judge questions must be non-empty text")
-        unknown = set(bench.PROMPT_VAR.findall(q)) - known
-        if unknown:
-            raise bench.BenchError(f"{pid}: judge question uses unknown variable {{{sorted(unknown)[0]}}}")
+        for name, part in bench.PROMPT_VAR.findall(q):
+            if name not in known:
+                raise bench.BenchError(f"{pid}: judge question uses unknown variable {{{name}"
+                                       + (f":{part}" if part else "") + "}")
+            if part and part != "label":
+                raise bench.BenchError(f"{pid}: judge question uses {{{name}:{part}}} – only :label is allowed")
 
 
 def render_questions(qs, variant):
@@ -259,6 +262,41 @@ def image_content(path, questions):
             {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{data}"}}]
 
 
+MAX_VAR_EXAMPLES = 6
+
+
+def _var_examples(prompt):
+    """{name: [(label, value), …]} from the prompt's variants, at most MAX_VAR_EXAMPLES per name."""
+    out = {}
+    for v in prompt.get("_variants") or []:
+        for n, x in v.items():
+            pairs = out.setdefault(n, [])
+            if len(pairs) < MAX_VAR_EXAMPLES and (x["label"], x["value"]) not in pairs:
+                pairs.append((x["label"], x["value"]))
+    return out
+
+
+def _var_summary(names, examples):
+    """'{emotion} = laughing (laughing heartily), angry' – shows the model what gets filled in."""
+    out = []
+    for n in names:
+        pairs = examples.get(n) or []
+        listed = ", ".join(lab if str(val) == lab else f"{lab} ({str(val)[:60]})" for lab, val in pairs)
+        out.append("{" + n + "}" + (" = " + listed if listed else ""))
+    return "; ".join(out)
+
+
+def text_vars(prompt):
+    """Variable names that appear in the prompt or negative text – the ones a question can check."""
+    text = f"{prompt.get('prompt') or ''} {prompt.get('negative') or ''}"
+    names = {m.group(1) for m in bench.PROMPT_VAR.finditer(text)}
+    return names & set(prompt.get("vars") or {})
+
+
+def question_vars(qs):
+    return {name for q in qs for name, _ in bench.PROMPT_VAR.findall(q)}
+
+
 def questions_content(prompt):
     names = sorted(prompt.get("vars") or {})
     parts = [
@@ -268,9 +306,12 @@ def questions_content(prompt):
         f"Prompt: {prompt['prompt']}",
     ]
     if names:
-        parts.append("The prompt has variables: " + ", ".join("{" + n + "}" for n in names)
-                     + ". Where a question depends on one, keep the placeholder exactly as written, e.g. {"
-                     + names[0] + "}.")
+        parts.append("The prompt has variables: " + _var_summary(names, _var_examples(prompt))
+                     + ". They are filled in per image; a question that depends on one must contain it.")
+        parts.append("Write '{" + names[0] + "}' where the whole text fits the question, and '{"
+                     + names[0] + ":label}' for the short label – use the label when the value is a long "
+                     "phrase and the question reads better with the short name. A question whose variable is "
+                     "not varied in the prompt text (e.g. a workflow value like denoise) needs no variable.")
     if prompt.get("check"):
         parts.append(f"The person benchmarking wants to check: {prompt['check']}")
     parts.append('Reply with only a JSON list of strings, e.g. ["Is there a cat?", "Is the cat orange?"].')
@@ -332,6 +373,10 @@ def _ask_all(jcfg, todo, new, emit, stop):
             qs = parse_questions(chat(jcfg, questions_content(p)))
             try:
                 check_questions(qs, p)
+                missing = text_vars(p) - question_vars(qs)
+                if missing:
+                    raise bench.BenchError("no question uses " + ", ".join("{" + n + "}" for n in sorted(missing))
+                                           + ", though the prompt text varies by it")
             except bench.BenchError as e:
                 raise ValueError(str(e)) from None
             return qs

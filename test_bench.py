@@ -50,6 +50,25 @@ class T_expand_variants(unittest.TestCase):
                          [("neutral", "calm"), ("laughing", "ha")])
 
 
+class T_render_text(unittest.TestCase):
+    V = {"emotion": {"label": "laughing", "value": "laughing heartily"},
+         "age": {"label": "18", "value": 18}}
+
+    def test_value_by_default(self):
+        self.assertEqual(bench.render_text("a {emotion} cat, {age}", self.V), "a laughing heartily cat, 18")
+
+    def test_label_with_suffix(self):   # short label, e.g. in a judge question
+        self.assertEqual(bench.render_text("Is she {emotion:label}?", self.V), "Is she laughing?")
+        self.assertEqual(bench.render_text("{age:label}", self.V), "18")
+
+    def test_unknown_name_or_suffix_stays_literal(self):
+        self.assertEqual(bench.render_text("{color} {color:label} {emotion:other}", self.V),
+                         "{color} {color:label} {emotion:other}")
+
+    def test_json_and_double_braces_untouched(self):
+        self.assertEqual(bench.render_text('{"a": 1} {{emotion}}', self.V), '{"a": 1} {{emotion}}')
+
+
 class T_inject(unittest.TestCase):
     def test_alone_keeps_type(self):
         used = set()

@@ -39,7 +39,7 @@ CODE = Path(__file__).resolve().parent
 # Data folder (config.yaml, prompts.yaml, workflows/, inputs/, results/). Default: next to the script.
 ROOT = Path(os.environ.get("COMFYBENCH_HOME") or CODE).resolve()
 PLACEHOLDER = re.compile(r"\{\{\s*(\w+)\s*\}\}")   # in workflow: {{seed}}
-PROMPT_VAR = re.compile(r"(?<!\{)\{(\w+)\}(?!\})")  # in prompt:   {emotion}
+PROMPT_VAR = re.compile(r"(?<!\{)\{(\w+)(?::(\w+))?\}(?!\})")  # {emotion} → value, {emotion:label} → label
 IMAGE_KEY = re.compile(r"^(image|mask)\w*$")        # keys whose values are input images
 DATA_MARK = "/*__DATA__*/null"
 CSS_MARK = '<link rel="stylesheet" href="static/app.css">'
@@ -189,8 +189,13 @@ def variant_slug(variant):
 
 
 def render_text(text, variant):
-    return PROMPT_VAR.sub(
-        lambda m: str(variant[m.group(1)]["value"]) if m.group(1) in variant else m.group(0), text)
+    """{name} → the variable's value, {name:label} → its label; anything unknown stays as written."""
+    def sub(m):
+        name, part = m.group(1), m.group(2) or "value"
+        if name in variant and part in ("value", "label"):
+            return str(variant[name][part])
+        return m.group(0)
+    return PROMPT_VAR.sub(sub, text)
 
 
 def parse_var_filter(items):
