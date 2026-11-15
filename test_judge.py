@@ -316,6 +316,26 @@ class T_http(PatchPost):
         self.assertIn("{emotion} = laughing (laughing hard)", text)   # the model must see what gets filled in
         self.assertIn("{emotion:label}", text)
 
+    def test_questions_content_shows_placeholder_in_the_examples(self):
+        # The model imitates the instruction. Without a requirement per variable name it writes the
+        # value literally ("Is she laughing?") and the list fails the check against text_vars.
+        text = judge.questions_content(mk_prompt())
+        self.assertIn("Use the placeholders literally: {emotion}", text)
+        self.assertIn("At least one question must contain {emotion}.", text)
+        self.assertIn("Never replace a placeholder by its value", text)
+        self.assertIn('["Is there a cat?", "Is the cat {emotion}?"]', text)   # reply example
+
+    def test_questions_content_needs_no_placeholder_for_workflow_variables(self):
+        # denoise is not varied by the prompt text, so no question may be forced to use it
+        text = judge.questions_content(mk_prompt(text="a cat", vars_={"denoise": [0.5, 0.7]}))
+        self.assertNotIn("At least one question must contain {denoise}", text)
+        self.assertNotIn("Use the placeholders literally", text)
+        self.assertIn('["Is there a cat?", "Is the cat orange?"]', text)
+
+    def test_questions_content_keeps_plain_example_without_variables(self):
+        text = judge.questions_content(mk_prompt(text="a cat", vars_={}))
+        self.assertIn('["Is there a cat?", "Is the cat orange?"]', text)
+
     def test_questions_content_caps_long_value_lists(self):
         p = mk_prompt(vars_={"emotion": {str(i): f"value {i}" for i in range(20)}})
         text = judge.questions_content(p)

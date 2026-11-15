@@ -299,6 +299,7 @@ def question_vars(qs):
 
 def questions_content(prompt):
     names = sorted(prompt.get("vars") or {})
+    varying = sorted(text_vars(prompt))     # variables the prompt text actually varies by
     parts = [
         "Write 3 to 8 yes/no questions in English that check whether an image follows this text-to-image prompt. "
         "Each question checks one visible fact (subject, count, color, position, style, text in the image). "
@@ -312,9 +313,16 @@ def questions_content(prompt):
                      + names[0] + ":label}' for the short label – use the label when the value is a long "
                      "phrase and the question reads better with the short name. A question whose variable is "
                      "not varied in the prompt text (e.g. a workflow value like denoise) needs no variable.")
+    if varying:                     # without this spelled out per name the model inlines the value
+        parts.append("Use the placeholders literally: " + ", ".join("{" + n + "}" for n in varying)
+                     + ". " + " ".join(f"At least one question must contain {{{n}}}." for n in varying)
+                     + " Never replace a placeholder by its value – not 'Is she angry?' but "
+                     "'Is she {emotion:label}' (or '{emotion}' where the value reads well in the sentence).")
     if prompt.get("check"):
         parts.append(f"The person benchmarking wants to check: {prompt['check']}")
-    parts.append('Reply with only a JSON list of strings, e.g. ["Is there a cat?", "Is the cat orange?"].')
+    example = ('["Is there a cat?", ' + ", ".join(f'"Is the cat {{{n}}}?"' for n in varying) + "]"
+               if varying else '["Is there a cat?", "Is the cat orange?"]')
+    parts.append("Reply with only a JSON list of strings, e.g. " + example + ".")
     return "\n\n".join(parts)
 
 
