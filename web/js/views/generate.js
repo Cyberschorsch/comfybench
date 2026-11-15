@@ -117,7 +117,7 @@ function rnJudgeSec(){
   if(!state.data.judge_enabled) return "";
   const can = !rnActive() && ui.rnModels.length && ui.rnPrompts.length;
   return html`<div class="rn-sec" id="rn-judge"><div class="rn-h">Judge</div>
-    <p class="hint">A vision LLM answers the judge questions of the selected prompts for the selected models' images.</p>
+    <p class="hint">A vision LLM answers the judge questions of the selected prompts for the selected models' images, then describes what it sees.</p>
     <label class="rn-item"><input type="checkbox" checked=${ui.jgQOnly} onChange=${e => { ui.jgQOnly = e.currentTarget.checked; update(); }} /><span>Questions only<small>write missing judge questions to prompts.yaml (rewrites the file, backup in .backups/) – review them before judging</small></span></label>
     <label class="rn-item"><input type="checkbox" checked=${ui.jgForce} disabled=${ui.jgQOnly} onChange=${e => { ui.jgForce = e.currentTarget.checked; update(); }} /><span>Judge current results again</span></label>
     <button disabled=${!can} onClick=${onJudgeStart}>${ui.jgQOnly ? "Write questions" : "Start judging"}</button>

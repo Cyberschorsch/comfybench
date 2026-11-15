@@ -64,7 +64,8 @@ for i, (gid, model, color) in enumerate([("g1", "m1", (200, 30, 30)), ("g2", "m2
 _, info = judge.expected(store.generations()[0], {"apple": p}, cfg["judge"], base)
 store.set_judgment("g1", {"at": "2026-11-14T11:00:00", "judge": "fake-vl", "qhash": info["qhash"],
                           "fidelity": [["Is the apple red?", "no"]], "quality": [["Is it clean?", "yes"]],
-                          "fidelity_score": 0.0, "quality_score": 1.0})
+                          "fidelity_score": 0.0, "quality_score": 1.0,
+                          "description": "A green apple on a wooden table."})
 store.set_judgment("g2", {"at": "2026-11-14T11:00:00", "judge": "fake-vl", "qhash": "outdated0000",
                           "fidelity": [["Is the apple red?", "yes"]], "quality": [["Is it clean?", "yes"]],
                           "fidelity_score": 1.0, "quality_score": 1.0})

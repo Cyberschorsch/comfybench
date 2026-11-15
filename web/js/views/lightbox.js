@@ -118,6 +118,7 @@ function JudgeSection(e){
     <ul class="judge-ans">${pairs.map(([q, a]) => html`<li class=${a === "yes" ? "yes" : "no"}>${a === "yes" ? "✓" : "✗"} ${q}</li>`)}</ul>` : "";
   return html`<b>Judge</b>${e.stale ? html` <span class="ver old" title="Questions, prompt or judge model changed – judged again on the next judge run">outdated</span>` : ""}
     ${list("Fidelity", e.fidelity)}${list("Quality", e.quality)}
+    ${e.description ? html`<div class="muted">What the judge sees</div><p class="judge-desc">${e.description}</p>` : ""}
     <p class="muted">${e.judge || ""} · ${(e.at || "").replace("T", " ")}</p>`;
 }
 

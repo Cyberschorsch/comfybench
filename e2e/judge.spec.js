@@ -38,6 +38,7 @@ test("lightbox lists the judge answers", async ({page}) => {
   await expect(lb).toContainText("✗ Is the apple red?");
   await expect(lb).toContainText("✓ Is it clean?");
   await expect(lb).toContainText("fake-vl");
+  await expect(lb.locator(".judge-desc")).toHaveText("A green apple on a wooden table.");
 });
 
 test("static report shows the badge", async ({page}) => {

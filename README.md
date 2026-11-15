@@ -159,7 +159,7 @@ Every PNG still contains its full workflow: drag it into ComfyUI to open it.
 
 ## Judge
 
-An optional vision LLM answers fixed yes/no questions for every image. That gives two numbers per image: **fidelity** (does it follow the prompt?) and **quality** (visible defects?). Compare shows them per cell and averaged per column, the gallery can sort by worst fidelity, and the full view lists every answer. Your stars stay untouched.
+An optional vision LLM answers fixed yes/no questions for every image. That gives two numbers per image: **fidelity** (does it follow the prompt?) and **quality** (visible defects?). Compare shows them per cell and averaged per column, the gallery can sort by worst fidelity, and the full view lists every answer. After the questions, the judge is also asked in a second request to describe exactly what it sees; the full view shows that description under the answers, which helps when an answer looks wrong. Your stars stay untouched.
 
 Any OpenAI-compatible endpoint works – locally Ollama, LM Studio, vLLM or llama.cpp, or a cloud API:
 
@@ -183,7 +183,7 @@ The fidelity questions live per prompt in `prompts.yaml` under `judge:`; variabl
 2. Review the questions – in `prompts.yaml` or in Setup → Prompts. Delete a list to have it generated again.
 3. `python bench.py judge` judges every image that has no current result. Filters: `--models`, `--prompts`, `--category`; `--force` judges again.
 
-A result goes stale when the questions, the variant's text or the judge model change; stale results are greyed out and judged again on the next run. Images made with an older wording of the prompt and imported images are not judged.
+A result goes stale when the questions, the variant's text or the judge model change; stale results are greyed out and judged again on the next run. Results from before the description existed are judged again on the next run as well, to get one. Images made with an older wording of the prompt and imported images are not judged.
 
 The judge is good at prompt adherence – counts, colours, positions, text in the image – and weak at taste. Check the "agreement with your stars" line in the gallery before trusting the ranking.
 

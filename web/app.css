@@ -66,6 +66,7 @@ td.c img,.card img{width:100%;border-radius:6px;display:block;cursor:zoom-in;bac
 .jb.stale{color:var(--muted);border:1px dashed var(--line);background:none}
 .judge-ans{list-style:none;padding:0;margin:4px 0 10px;font-size:13px}
 .judge-ans li.no{color:var(--err)}
+.judge-desc{margin:4px 0 10px;font-size:13px;white-space:pre-wrap;max-height:220px;overflow:auto}
 .judge-agree{margin:0 0 10px}
 .pager{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:3px;font-size:12px;color:var(--muted);user-select:none}
 .pager button{border:1px solid var(--line);background:var(--panel);border-radius:4px;cursor:pointer;color:var(--text);font-size:14px;line-height:1;padding:0 8px}

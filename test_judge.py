@@ -176,7 +176,7 @@ class T_select(unittest.TestCase):
                 mk_gen("old", self.p, prompt_rev="000000000000"), mk_gen("missing", self.p),
                 mk_gen("cur", self.p), mk_gen("imp", self.p, mode="import"), mk_gen("err", self.p, status="error")]
         _, info = judge.expected(gens[5], {"p": self.p}, JCFG, self.tmp)
-        todo, skipped = self.select(gens, [self.p, p2], {"cur": {"qhash": info["qhash"]}})
+        todo, skipped = self.select(gens, [self.p, p2], {"cur": {"qhash": info["qhash"], "description": "x"}})
         self.assertEqual([g["id"] for g, _ in todo], ["ok"])
         self.assertEqual(dict(skipped), {"no-prompt": 1, "no-questions": 1, "old-wording": 1,
                                          "missing-file": 1, "current": 1})
@@ -198,7 +198,7 @@ class T_select(unittest.TestCase):
         self.touch("a", "b")
         gens = [mk_gen("a", self.p), mk_gen("b", self.p)]
         _, info = judge.expected(gens[0], {"p": self.p}, JCFG, self.tmp)
-        cur = {"a": {"qhash": info["qhash"]}}
+        cur = {"a": {"qhash": info["qhash"], "description": "x"}}
         self.assertEqual([g["id"] for g, _ in self.select(gens, judgments=cur)[0]], ["b"])
         self.assertEqual([g["id"] for g, _ in self.select(gens, judgments=cur, force=True)[0]], ["a", "b"])
         self.assertEqual([g["id"] for g, _ in self.select(gens, ids={"a"}, force=True)[0]], ["a"])
@@ -477,13 +477,13 @@ class T_run(RunBase):
 
     def test_judge_does_not_touch_prompts_yaml(self):
         self.add_gen("g1")
-        self.patch(FakeResp(content='{"1": "yes", "2": "yes"}'))
+        self.patch(FakeResp(content='{"1": "yes", "2": "yes"}'), FakeResp(content="A dog on grass."))
         self.run_judge()
         self.assertEqual(self.prompts_path.read_text(encoding="utf-8"), PROMPTS_YAML)
 
     def test_judge_writes_entry_and_second_run_noop(self):
         self.add_gen("g1")
-        self.patch(FakeResp(content='{"1": "no", "2": "yes"}'))
+        self.patch(FakeResp(content='{"1": "no", "2": "yes"}'), FakeResp(content="<think>hm</think> A dog on grass. "))
         s = self.run_judge()
         self.assertEqual(s["done"], 1)
         e = self.store.judgments()["g1"]
@@ -491,21 +491,53 @@ class T_run(RunBase):
         self.assertEqual(e["quality"], [["Clean?", "yes"]])
         self.assertEqual((e["fidelity_score"], e["quality_score"]), (0.0, 1.0))
         self.assertEqual(e["judge"], "vl")
+        self.assertEqual(e["description"], "A dog on grass.")
         ok = [d for ev, d in self.events if ev == "ok"]
         self.assertEqual(ok[0]["note"], "fidelity 0/1 · quality 1/1")
         self.assertTrue((self.tmp / "results" / "index.html").is_file())
         s2 = self.run_judge()
-        self.assertEqual(len(self.fake.calls), 1)
+        self.assertEqual(len(self.fake.calls), 2)
         self.assertEqual(s2["skipped_by"], {"current": 1})
 
     def test_judge_retry_then_fail_continues(self):
         self.add_gen("g1")
         self.add_gen("g2")
         self.patch(FakeResp(content="garbage"), FakeResp(content="garbage"),
-                   FakeResp(content='{"1": "yes", "2": "yes"}'))
+                   FakeResp(content='{"1": "yes", "2": "yes"}'), FakeResp(content="A dog on grass."))
         s = self.run_judge()
         self.assertEqual((s["done"], s["failed"]), (1, 1))
         self.assertEqual(list(self.store.judgments()), ["g2"])
+
+    def test_description_is_asked_after_the_answers(self):
+        self.add_gen("g1")
+        self.patch(FakeResp(content='{"1": "yes", "2": "yes"}'), FakeResp(content="  "), FakeResp(content="A dog."))
+        s = self.run_judge()
+        self.assertEqual(s["done"], 1)
+        self.assertEqual(self.store.judgments()["g1"]["description"], "A dog.")   # empty reply retried
+        texts = [c["json"]["messages"][0]["content"][0]["text"] for c in self.fake.calls]
+        self.assertTrue(texts[0].startswith(judge.IMAGE_INSTRUCTION))
+        self.assertEqual(texts[1:], [judge.DESCRIBE_INSTRUCTION] * 2)
+        self.assertTrue(self.fake.calls[1]["json"]["messages"][0]["content"][1]["image_url"]["url"]
+                        .startswith("data:image/png;base64,"))
+
+    def test_description_failure_fails_the_item(self):
+        self.add_gen("g1")
+        self.patch(FakeResp(content='{"1": "yes", "2": "yes"}'), FakeResp(content=""), FakeResp(content=""))
+        s = self.run_judge()
+        self.assertEqual((s["done"], s["failed"]), (0, 1))
+        self.assertEqual(self.store.judgments(), {})
+
+    def test_entry_without_description_is_judged_again(self):
+        self.add_gen("g1")
+        self.patch(FakeResp(content='{"1": "yes", "2": "yes"}'), FakeResp(content="A dog."))
+        self.run_judge()
+        e = self.store.judgments()["g1"]
+        del e["description"]
+        self.store.set_judgment("g1", e)
+        self.patch(FakeResp(content='{"1": "yes", "2": "yes"}'), FakeResp(content="A dog again."))
+        s = self.run_judge()
+        self.assertEqual(s["done"], 1)
+        self.assertEqual(self.store.judgments()["g1"]["description"], "A dog again.")
 
     def test_judge_abort_on_4xx(self):
         self.add_gen("g1")
@@ -573,7 +605,7 @@ class T_review_fixes(RunBase):
             return todo, skipped
         judge.select = select_then_delete
         self.addCleanup(setattr, judge, "select", orig)
-        self.patch(FakeResp(content='{"1": "yes", "2": "yes"}'))
+        self.patch(FakeResp(content='{"1": "yes", "2": "yes"}'), FakeResp(content="A dog on grass."))
         s = self.run_judge()
         self.assertEqual((s["done"], s["failed"], s["stopped"]), (1, 1, False))
         self.assertEqual(list(self.store.judgments()), ["g2"])

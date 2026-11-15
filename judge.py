@@ -1,4 +1,4 @@
-"""ComfyBench judge – a vision LLM answers fixed yes/no questions per image.
+"""ComfyBench judge – a vision LLM answers fixed yes/no questions per image, then describes what it sees.
 
 Uses bench.* at call time (bench registers itself as module "bench" before importing this one).
 """
@@ -179,7 +179,9 @@ def select(gens, prompts, jcfg, base, judgments, opts):
         if cats and (by_id.get(g.get("prompt")) or {}).get("category") not in cats:
             continue
         reason, info = expected(g, by_id, jcfg, base)
-        if reason is None and not opts.get("force") and (judgments.get(g["id"]) or {}).get("qhash") == info["qhash"]:
+        old = judgments.get(g["id"]) or {}
+        # entries from before the description existed are judged again to get one
+        if reason is None and not opts.get("force") and old.get("qhash") == info["qhash"] and old.get("description"):
             reason = "current"
         if reason:
             skipped[reason] += 1
@@ -254,12 +256,33 @@ IMAGE_INSTRUCTION = ('Answer each question about the image with yes or no. Reply
                      'mapping the question number to "yes" or "no", e.g. {"1": "yes", "2": "no"}.')
 
 
-def image_content(path, questions):
+DESCRIBE_INSTRUCTION = ("Describe exactly what you see in this image: the subjects and how many there are, their "
+                        "appearance, pose, expression and clothing, colours, the setting, composition and style, and "
+                        "any text in the image. Mention visible flaws such as artifacts or distorted anatomy. Describe "
+                        "only what is visible – do not guess what the image was meant to show. Plain text, no lists.")
+
+
+def image_part(path):
     data = base64.b64encode(path.read_bytes()).decode("ascii")
     mime = mimetypes.guess_type(path.name)[0] or "image/png"
+    return {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{data}"}}
+
+
+def image_content(path, questions):
     text = IMAGE_INSTRUCTION + "\n\n" + "\n".join(f"{i}. {q}" for i, q in enumerate(questions, 1))
-    return [{"type": "text", "text": text},
-            {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{data}"}}]
+    return [{"type": "text", "text": text}, image_part(path)]
+
+
+def describe_content(path):
+    return [{"type": "text", "text": DESCRIBE_INSTRUCTION}, image_part(path)]
+
+
+def parse_description(text):
+    """The free-text reply without thoughts; an empty one counts as unusable (retried)."""
+    text = re.sub(r"(?is)<think(?:ing)?>.*?</think(?:ing)?>", "", text or "").strip()
+    if not text:
+        raise ValueError("empty description")
+    return text
 
 
 MAX_VAR_EXAMPLES = 6
@@ -441,8 +464,11 @@ def _judge(cfg, jcfg, prompts, opts, emit, stop):
         t0 = time.time()
         qs = info["fidelity"] + info["quality"]
         try:
-            content = image_content(base / g["files"][0], qs)
+            path = base / g["files"][0]
+            content = image_content(path, qs)
             answers = retry(lambda: parse_answers(chat(jcfg, content), len(qs)), stop)
+            desc = describe_content(path)   # after the yes/no answers, so it cannot steer them
+            description = retry(lambda: parse_description(chat(jcfg, desc)), stop)
         except JudgeAbort as e:
             emit("abort", msg=str(e))
             stopped = True
@@ -460,7 +486,8 @@ def _judge(cfg, jcfg, prompts, opts, emit, stop):
         k = len(info["fidelity"])
         fid, qual = [list(x) for x in zip(qs[:k], answers[:k])], [list(x) for x in zip(qs[k:], answers[k:])]
         entry = {"at": bench.now(), "judge": jcfg["model"], "qhash": info["qhash"],
-                 "fidelity": fid, "quality": qual, "fidelity_score": score(fid), "quality_score": score(qual)}
+                 "fidelity": fid, "quality": qual, "fidelity_score": score(fid), "quality_score": score(qual),
+                 "description": description}
         if not store.set_judgment(g["id"], entry):
             continue   # deleted while it was being judged
         done += 1
