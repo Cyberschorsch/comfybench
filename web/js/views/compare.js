@@ -14,6 +14,8 @@ function JudgeBadge(e){
 }
 
 const avg = a => a.reduce((x, y) => x + y, 0) / a.length;
+// Timings without model loading; only when there are none, the cold ones
+const warm = sts => { const w = sts.flatMap(st => st.secs); return w.length ? w : sts.flatMap(st => st.cold); };
 
 // ------------------------------------------------------------------ Model bar (focused model detail)
 export function ModelBar(){
@@ -47,6 +49,7 @@ export function CompareControls(){
       ${opt.subOpts.map(([v, l]) => html`<option value=${v} selected=${v === cfg.sub}>${l}</option>`)}
     </select></div>`,
     html`<div><label>Seed </label><select id="seed" value=${cfg.seed}
+      disabled=${cfg.axis === "seed" || cfg.sub === "seed"} title=${cfg.axis === "seed" || cfg.sub === "seed" ? "Seeds are shown as columns" : ""}
       onChange=${e => { cfg.seed = e.target.value; update(); }}>
       ${opt.seedOpts.map(([v, l]) => html`<option value=${v} selected=${v === cfg.seed}>${l}</option>`)}
     </select></div>`,
@@ -78,7 +81,7 @@ function pageImg(im, row, sc, pages, pi){
     onClick=${() => openLightbox(im.id, row.ids)} />`,
     html`<div class="below">${Stars({id: im.id})}<span>${im.note ? "📝 " : ""}${LoraBadge({g: {lora_combo: im.lora || "none"}})}
       ${JudgeBadge(im.judge)}${old}${!old && im.n > 1 ? html`<span class="ver" title="${im.n} current versions">v${im.n}</span> ` : ""}
-      ${im.seconds != null ? im.seconds : "–"}s${im.seedNote && pages.length <= 1 ? ` · ${im.seed}` : ""}</span></div>`, pager];
+      ${im.cold ? html`<span title="First image after a model switch: the time includes loading the model and is left out of the Ø">❄ </span>` : ""}${im.seconds != null ? im.seconds : "–"}s${im.seedNote && pages.length <= 1 ? ` · seed ${im.seed}` : ""}</span></div>`, pager];
 }
 
 function renderCell(sc, row){
@@ -128,7 +131,7 @@ export function Compare(){
   cols.forEach((c, ci) => {
     const start = cols.slice(0, ci).reduce((n, x, i) => n + subs[i].length, 0);
     const grp = flatStats.slice(start, start + subs[ci].length);
-    const secs = grp.flatMap(st => st.secs);
+    const secs = warm(grp);
     const metaParts = axis === "model" ? [c.m.id] : [];
     if(secs.length) metaParts.push(avg(secs).toFixed(1) + "s Ø");
     const meta = metaParts.join(" · ");
@@ -143,7 +146,7 @@ export function Compare(){
         ${label}${meta ? html`<span class="meta">${meta}</span>` : ""}</th>`);
       subs[ci].forEach((sv, si) => {
         const st = flatStats[start + si];
-        const m2 = st.secs.length ? avg(st.secs).toFixed(1) + "s" : "";
+        const m2 = warm([st]).length ? avg(warm([st])).toFixed(1) + "s" : "";
         head2.push(html`<th class="g2" key=${"g2-" + ci + "-" + si} title=${sv.full || sv.label}>
           ${sv.label}${m2 ? html`<span class="meta">${m2}</span>` : ""}</th>`);
       });

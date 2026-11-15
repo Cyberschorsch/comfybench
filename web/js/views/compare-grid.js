@@ -70,14 +70,14 @@ function cellData(model, p, vkey, seeds, sink, lora, seedNote){
       const r = rating(okCur[0].id);
       if(r) sink.ratings.push(r);   // unrated images stay out of the average
       sink.judge.push((state.data.judge || {})[okCur[0].id]);
-      if(okCur[0].seconds) sink.secs.push(okCur[0].seconds);
+      if(okCur[0].seconds) (okCur[0].cold ? sink.cold : sink.secs).push(okCur[0].seconds);
       if(!sink.input && okCur[0].inputs && Object.keys(okCur[0].inputs).length) sink.input = okCur[0].inputs;
       okCur.forEach((g, i) => pages.push({kind: "img", id: g.id, src: fileUrl(g.files[0]),
-        judge: (state.data.judge || {})[g.id], seconds: g.seconds, note: (state.data.ratings[g.id] || {}).note, seed: s, seedNote,
+        judge: (state.data.judge || {})[g.id], seconds: g.seconds, cold: !!g.cold, note: (state.data.ratings[g.id] || {}).note, seed: s, seedNote,
         n: okCur.length, lora: g.lora_combo === "none" ? undefined : g.lora_combo}));
     }
     okOld.forEach(g => oldPages.push({kind: "img", id: g.id, src: fileUrl(g.files[0]),
-      judge: (state.data.judge || {})[g.id], seconds: g.seconds, note: (state.data.ratings[g.id] || {}).note, seed: s, seedNote, old: true,
+      judge: (state.data.judge || {})[g.id], seconds: g.seconds, cold: !!g.cold, note: (state.data.ratings[g.id] || {}).note, seed: s, seedNote, old: true,
       lora: g.lora_combo === "none" ? undefined : g.lora_combo}));
     if(!okAll.length && all[0]) pages.push({kind: "err", text: `Error · seed ${s}`,
       title: all[0].error || "", small: String(all[0].error || "").slice(0, 90)});
@@ -119,6 +119,14 @@ export function buildGrid(){
   const q = (cfg.q || "").trim().toLowerCase();
   const loraCombos = state.idx.loraCombos || [];
 
+  const none = msg => ({empty: msg, cols: [], subs: [], rows: [], flatStats: [], sub: cfg.sub || "none", axis, seedNote: false});
+  if(!models.length) return none("All models are hidden.");
+  const visible = new Set(models.map(m => m.id));
+  const benchGens = D.generations.filter(g => g.mode !== "import" && visible.has(g.model));
+  // The single value all un-swept images of a "default" column were made with, if there is one
+  const defaultLabel = vals => vals.size === 1 ? {label: "default · " + shortVal([...vals][0]), full: "default: " + [...vals][0]}
+    : {label: "default", full: vals.size ? "default: " + [...vals].join(", ") : ""};
+
   // Columns
   let cols;
   if(axis === "model") cols = models.map(m => ({id: "m:" + m.id, label: m.label, m}));
@@ -128,24 +136,40 @@ export function buildGrid(){
     .map(k => ({id: "l:" + k, label: k === "none" ? "base" : k, lora: k}));
   else {
     const labels = [];
+    const okVals = new Set(), anyVals = new Set();   // values the visible models have images / records for
+    benchGens.forEach(g => { const l = (g.variant || {})[axVar]; if(l === undefined) return;
+      anyVals.add(l); if(g.status === "ok") okVals.add(l); });
     D.prompts.forEach(p => p.variants.forEach(v => {
       const l = v.variant[axVar]; if(l === undefined) return;
-      if(focus && !D.generations.some(g => g.status === "ok" && g.model === focus && (g.variant || {})[axVar] === l)) return;
+      if(focus && !okVals.has(l)) return;
+      if(v.extra && !anyVals.has(l)) return;   // swept only by hidden models
       if(!labels.includes(l)) labels.push(l);
     }));
     // Images that never got this value (not swept, or swept later) keep their own "default" column
-    const hasDefault = D.generations.some(g => g.status === "ok" && g.mode !== "import" && (g.files || []).length
-      && !hidden.includes(g.model) && (!focus || g.model === focus) && (g.variant || {})[axVar] === undefined);
+    const dfltVals = new Set();
+    let hasDefault = false;
+    benchGens.forEach(g => {
+      if(g.status !== "ok" || !(g.files || []).length || (g.variant || {})[axVar] !== undefined) return;
+      hasDefault = true;
+      const v = (g.values || {})[axVar]; if(v !== undefined) dfltVals.add(String(v));
+    });
     if(hasDefault && labels.length) labels.push("\u0000default");   // un-swept images last
     const short = valLabels(labels);
     cols = labels.map((l, i) => l === "\u0000default"
-      ? {id: "v:default", label: "default", dflt: true}
+      ? {id: "v:default", dflt: true, ...defaultLabel(dfltVals)}
       : {id: "v:" + l, label: shortVal(axVar) + ": " + short[i], full: axVar + ": " + l, l});
   }
 
   // Rows: Prompt × (variant without column/sub variable) × (model, when model is not the column)
   const consumed = [axVar, subVar].filter(Boolean);
   const rows = [];
+  // Which model has records for which row (variant without the column variables), and for which column value
+  const restOf = variant => keyOf(Object.fromEntries(Object.entries(variant || {}).filter(([k]) => !consumed.includes(k))));
+  const hasRow = new Set(), hasVal = new Set();
+  benchGens.forEach(g => {
+    hasRow.add([g.model, g.prompt, restOf(g.variant)].join("\u0001"));
+    if(axVar && (g.variant || {})[axVar] !== undefined) hasVal.add(g.model + "\u0001" + g.variant[axVar]);
+  });
   for(const p of D.prompts){
     if(cfg.cat && p.category !== cfg.cat) continue;
     if(focus && !focusModel.modes.includes(p.mode)) continue;   // no workflow for this model
@@ -156,21 +180,27 @@ export function buildGrid(){
         const rest = Object.fromEntries(Object.entries(v.variant).filter(([k]) => !consumed.includes(k)));
         const k = keyOf(rest);
         if(!seen.has(k)){
-          seen.set(k, {rest, label: Object.entries(rest).map(([a, b]) => a + ": " + b).join(" · ")}); groups.push(seen.get(k));
+          seen.set(k, {rest, extra: true, label: Object.entries(rest).map(([a, b]) => a + ": " + b).join(" · ")}); groups.push(seen.get(k));
         }
+        if(!v.extra) seen.get(k).extra = false;
       });
-    } else groups = p.variants.map(v => ({rest: v.variant, label: v.label, key: v.key}));
+    } else groups = p.variants.map(v => ({rest: v.variant, label: v.label, key: v.key, extra: !!v.extra}));
     let first = true;
     for(const gr of groups){
       if(q && !(p.id + " " + gr.label + " " + p.prompt).toLowerCase().includes(q)) continue;
       const rowModels = (axis === "model" || focus) ? [null] : models;
-      for(const m of rowModels){ rows.push({p, gr, m, first}); first = false; }
+      for(const m of rowModels){
+        // A row that exists only because of a sweep is shown just for the models that ran it
+        if(gr.extra && !(m ? [m] : models).some(x => hasRow.has([x.id, p.id, keyOf(gr.rest)].join("\u0001")))) continue;
+        rows.push({p, gr, m, first}); first = false;
+      }
     }
   }
   if(!rows.length || !cols.length){
-    return {empty: focus ? `Nothing generated with ${mLabel(focus)} for this filter.`
+    return none(q && cols.length ? `No prompt or variant matches "${cfg.q.trim()}".`
+      : focus ? `Nothing generated with ${mLabel(focus)} for this filter.`
       : axVar ? `No prompts with the variable "${axVar}" for this filter.`
-      : "No prompts for this filter.", cols: [], subs: [], rows: [], flatStats: [], sub, axis, seedNote: false};
+      : "No prompts for this filter.");
   }
 
   // Sub-columns per main column: only values that actually have images for that column
@@ -181,6 +211,7 @@ export function buildGrid(){
     if(sub === "lora") return loraCombos.map(k => ({lora: k, label: k === "none" ? "base" : k}));
     const out = [], seen = new Set();
     let hasDefault = false;
+    const dfltVals = new Set();
     for(const g of D.generations){
       if(g.status !== "ok" || g.mode === "import" || !(g.files || []).length) continue;
       if(axis === "model" ? g.model !== c.m.id : (focus && g.model !== focus)) continue;
@@ -188,12 +219,16 @@ export function buildGrid(){
       if(axis === "lora" && loraKey(g) !== c.lora) continue;
       if(axVar && (g.variant || {})[axVar] !== c.l) continue;
       const v = (g.variant || {})[subVar];
-      if(v === undefined){ hasDefault = true; continue; }
+      if(v === undefined){
+        hasDefault = true;
+        if((g.values || {})[subVar] !== undefined) dfltVals.add(String(g.values[subVar]));
+        continue;
+      }
       if(!seen.has(v)){ seen.add(v); out.push(v); }
     }
     if(hasDefault) out.push("\u0000default");   // un-swept images last
     const short = valLabels(out);
-    return out.map((v, i) => v === "\u0000default" ? {val: "", label: "default"} : {val: v, label: short[i], full: v});
+    return out.map((v, i) => v === "\u0000default" ? {val: "", ...defaultLabel(dfltVals)} : {val: v, label: short[i], full: v});
   });
 
   const seedNote = cfg.seed === "all" && axis !== "seed" && sub !== "seed";
@@ -204,10 +239,10 @@ export function buildGrid(){
     cols = nc; subs.splice(0, subs.length, ...ns);
   }
   if(!cols.length) return {empty: "No images for this sub-column.", cols: [], subs: [], rows: [], flatStats: [], sub, axis, seedNote: false};
-  const flatStats = cols.flatMap((c, ci) => subs[ci].map(() => ({ratings: [], secs: [], judge: []})));
+  const flatStats = cols.flatMap((c, ci) => subs[ci].map(() => ({ratings: [], secs: [], cold: [], judge: []})));
 
   const body = rows.map(({p, gr, m, first}) => {
-    const sink = {ratings: [], secs: [], judge: [], input: null};
+    const sink = {ratings: [], secs: [], cold: [], judge: [], input: null};
     const cells = cols.map((c, ci) => {
       const model = modelOf({p, gr, m}, c);
       const vbase = {...gr.rest};
@@ -220,15 +255,19 @@ export function buildGrid(){
         if(subVar && sv.val) attribs[subVar] = sv.val;
         const vkey = keyOf(attribs);
         if(!p.variants.some(v => v.key === vkey)) return {kind: "missing", text: "not in set"};
+        // A swept value this model never ran (another model's checkpoint): nothing is missing here
+        if(axVar && !c.dflt && !hasVal.has(model.id + "\u0001" + c.l) && !p.variants.some(v => !v.extra && v.variant[axVar] === c.l)){
+          return {kind: "missing", text: "–", title: `${model.label} was not run with ${axVar}: ${c.l}`};
+        }
         if(axis === "lora" && !modelUsesLora(model, c.lora)) return {kind: "missing", text: "LoRA not configured for this model"};
         if(sub === "lora" && !modelUsesLora(model, sv.lora)) return {kind: "missing", text: "LoRA not configured"};
         const seeds = sub === "seed" ? [sv.s] : axis === "seed" ? [c.s] : seedsSel;
-        const local = {ratings: [], secs: [], judge: [], input: sink.input};
+        const local = {ratings: [], secs: [], cold: [], judge: [], input: sink.input};
         const cellKey = [c.id, si, p.id, gr.key || gr.label || "", m ? m.id : "", focus || ""].join("\u0003");
         const sc = cellData(model, p, vkey, seeds, local,
           axis === "lora" ? c.lora : sub === "lora" ? sv.lora : undefined, seedNote);
         sc.key = cellKey;
-        st.ratings.push(...local.ratings); st.secs.push(...local.secs); st.judge.push(...local.judge);
+        st.ratings.push(...local.ratings); st.secs.push(...local.secs); st.cold.push(...local.cold); st.judge.push(...local.judge);
         sink.input = local.input;
         return sc;
       });

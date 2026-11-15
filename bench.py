@@ -238,6 +238,12 @@ def group_by_model_files(jobs, sweep, key_of):
     return sorted(jobs, key=lambda j: tuple(pos[k].get(key_of(j)[k]["label"], 0) for k in keys))
 
 
+def loaded_files(values, used, lora_combo):
+    """The model files one job needs (checkpoint, UNet, VAE … plus LoRAs) – a change means ComfyUI loads a model."""
+    files = sorted((k, values[k]) for k in used if isinstance(values.get(k), str) and MODEL_FILE.search(values[k]))
+    return tuple(files), (lora_combo or {}).get("combo_key", "none")
+
+
 def parse_lora_combo(item):
     """Parse --lora-combo "style,detail:0.7" → (["style", "detail"], {"detail": 0.7})."""
     if not item:
@@ -969,6 +975,7 @@ def execute(cfg, prompts, opts, emit, stop=None, abort=None):
     done = skipped = failed = idle_skipped = 0
     stopped = False
     new_ids = []
+    prev_loaded = None
 
     for n, (mid, model, mode, template, p, variant, seed, mapped_img_keys, lora_combo, model_input_ref) in enumerate(jobs, 1):
         if stop is not None and stop.is_set():
@@ -1051,6 +1058,9 @@ def execute(cfg, prompts, opts, emit, stop=None, abort=None):
             continue
 
         emit("start", n=n, label=label)
+        # The first job with other model files than the one before pays for loading them
+        loaded = loaded_files(values, used, lora_combo)
+        cold, prev_loaded = loaded != prev_loaded, loaded
         t0 = time.time()
         try:
             for rel in input_src.values():
@@ -1092,6 +1102,8 @@ def execute(cfg, prompts, opts, emit, stop=None, abort=None):
             "inputs": input_copy, "input_src": input_src,
             "files": files, "seconds": secs, "at": now(),
         }
+        if cold:
+            rec["cold"] = True
         store.append(rec)
         done_fps.add(fp)
         done += 1

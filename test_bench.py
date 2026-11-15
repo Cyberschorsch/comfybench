@@ -596,6 +596,15 @@ class GroupByModelFilesTest(unittest.TestCase):
         # order within one checkpoint is unchanged
         self.assertEqual([(j[0], j[1]["cfg"]["label"]) for j in out[:4]], [("p1", "3"), ("p1", "5"), ("p2", "3"), ("p2", "5")])
 
+    def test_loaded_files_change_with_checkpoint_or_lora(self):
+        values = {"checkpoint": "a.safetensors", "vae": "v.pt", "sampler": "euler", "unused": "x.safetensors"}
+        used = {"checkpoint", "vae", "sampler"}
+        base = bench.loaded_files(values, used, None)
+        self.assertEqual(base, ((("checkpoint", "a.safetensors"), ("vae", "v.pt")), "none"))
+        self.assertEqual(bench.loaded_files({**values, "sampler": "dpmpp_2m"}, used, None), base)
+        self.assertNotEqual(bench.loaded_files({**values, "checkpoint": "b.safetensors"}, used, None), base)
+        self.assertNotEqual(bench.loaded_files(values, used, {"combo_key": "style"}), base)
+
     def test_no_model_file_sweep_keeps_order(self):
         sweep = bench.parse_sweep(["cfg=7,3"])
         jobs = [("p1", {"cfg": v}) for v in sweep["cfg"]]
