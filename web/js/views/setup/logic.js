@@ -132,7 +132,11 @@ export function fillFromWorkflow(m, mode, keys){
 export async function uploadWorkflow(){
   const f = await pickFile(".json,application/json"); if(!f) return null;
   let wf; try { wf = JSON.parse(await f.text()); } catch(e){ suErr("That is not a valid JSON file."); return null; }
-  const send = overwrite => api("POST", "api/upload", {kind: "workflow", name: f.name, workflow: wf, overwrite});
+  return saveWorkflow(f.name, wf);
+}
+// Store an API-format workflow under workflows/<name>; asks before overwriting different content.
+export async function saveWorkflow(name, wf){
+  const send = overwrite => api("POST", "api/upload", {kind: "workflow", name, workflow: wf, overwrite});
   try {
     let r;
     try { r = await send(false); }

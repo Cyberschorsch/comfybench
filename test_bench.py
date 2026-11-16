@@ -505,6 +505,90 @@ class T_import_civitai(unittest.TestCase):
                          ["civitai-12097475", "second-name"])
 
 
+def history_wf(text="a cat", seed=1, ckpt="sdxl.safetensors", prefix="ComfyUI"):
+    return {
+        "4": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": ckpt}},
+        "6": {"class_type": "CLIPTextEncode", "inputs": {"text": text, "clip": ["4", 1]}},
+        "7": {"class_type": "CLIPTextEncode", "inputs": {"text": "blurry", "clip": ["4", 1]}},
+        "5": {"class_type": "EmptyLatentImage", "inputs": {"width": 1024, "height": 1024, "batch_size": 1}},
+        "3": {"class_type": "KSampler", "inputs": {"seed": seed, "steps": 20, "cfg": 7, "sampler_name": "euler",
+              "scheduler": "normal", "denoise": 1, "model": ["4", 0], "positive": ["6", 0],
+              "negative": ["7", 0], "latent_image": ["5", 0]}},
+        "9": {"class_type": "SaveImage", "inputs": {"filename_prefix": prefix, "images": ["3", 0]}},
+    }
+
+
+def history_entry(number, pid, wf, ok=True, ts=1700000000000):
+    return {"prompt": [number, pid, wf, {"client_id": "x"}, ["9"]], "outputs": {},
+            "status": {"status_str": "success" if ok else "error", "completed": ok,
+                       "messages": [["execution_start", {"prompt_id": pid, "timestamp": ts}]]}}
+
+
+class T_comfy_history(unittest.TestCase):
+    def setUp(self):
+        self._get = bench.requests.get
+        self.hist, self.urls = {}, []
+
+        def fake_get(url, params=None, timeout=None):
+            self.urls.append((url, params))
+            hist = self.hist
+            class R:
+                status_code = 200
+                def raise_for_status(self): pass
+                def json(self): return hist
+            return R()
+        bench.requests.get = fake_get
+
+    def tearDown(self):
+        bench.requests.get = self._get
+
+    def test_lists_newest_first_with_summary(self):
+        other = dict(history_wf("old prompt"), **{"10": {"class_type": "PreviewImage", "inputs": {"images": ["3", 0]}}})
+        self.hist = {"a": history_entry(1, "a", other),
+                     "b": history_entry(2, "b", history_wf("new prompt", ckpt="flux.gguf"), ts=1700000500000)}
+        res = bench.comfy_history("http://c")
+        self.assertTrue(res["ok"])
+        self.assertEqual([i["prompt_id"] for i in res["items"]], ["b", "a"])
+        top = res["items"][0]
+        self.assertEqual(top["prompt"], "new prompt")
+        self.assertEqual(top["model"], "flux.gguf")
+        self.assertEqual(top["time"], 1700000500000)
+        self.assertEqual(top["status"], "success")
+        self.assertEqual(top["workflow"], history_wf("new prompt", ckpt="flux.gguf"))
+        self.assertEqual(self.urls[0][0], "http://c/history")
+
+    def test_model_prefers_the_diffusion_model_over_text_encoders(self):
+        wf = history_wf()
+        del wf["4"]
+        wf["1"] = {"class_type": "CLIPLoader", "inputs": {"clip_name": "qwen_3_4b.safetensors", "type": "lumina2"}}
+        wf["2"] = {"class_type": "UNETLoader", "inputs": {"unet_name": "z_image_turbo_bf16.safetensors"}}
+        self.hist = {"a": history_entry(1, "a", wf)}
+        self.assertEqual(bench.comfy_history("http://c")["items"][0]["model"], "z_image_turbo_bf16.safetensors")
+
+    def test_reruns_of_the_same_graph_collapse_to_the_newest(self):
+        self.hist = {"a": history_entry(1, "a", history_wf("cat", seed=1)),
+                     "b": history_entry(2, "b", history_wf("dog", seed=2)),
+                     "c": history_entry(3, "c", history_wf("cat", seed=3, ckpt="other.safetensors"))}
+        res = bench.comfy_history("http://c")
+        self.assertEqual([i["prompt_id"] for i in res["items"]], ["c"])
+        self.assertEqual(res["items"][0]["runs"], 3)
+
+    def test_skips_comfybench_jobs_and_ui_format(self):
+        self.hist = {"a": history_entry(1, "a", history_wf(prefix="comfybench/flux/p1")),
+                     "b": history_entry(2, "b", {"nodes": [], "links": []}),
+                     "c": history_entry(3, "c", history_wf())}
+        res = bench.comfy_history("http://c")
+        self.assertEqual([i["prompt_id"] for i in res["items"]], ["c"])
+
+    def test_unreachable_comfyui_is_reported(self):
+        def down(url, params=None, timeout=None):
+            raise bench.requests.ConnectionError("refused")
+        bench.requests.get = down
+        res = bench.comfy_history("http://c")
+        self.assertFalse(res["ok"])
+        self.assertIn("not reachable", res["error"])
+
+
 class T_build_html(unittest.TestCase):
     def test_serve_variant_is_index(self):
         self.assertEqual(bench.build_html(), (bench.WEB / "index.html").read_text(encoding="utf-8"))

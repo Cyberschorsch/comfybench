@@ -829,6 +829,62 @@ def comfy_options(cfg, refresh=False):
     return {"ok": True, "models": models, "loras": loras}
 
 
+MODEL_EXT = (".safetensors", ".ckpt", ".gguf", ".pt", ".pth", ".bin", ".sft")
+
+
+def comfy_history(server, max_items=200):
+    """Workflows ComfyUI ran recently, already in API format (GET /history), newest first.
+    Re-runs of the same graph (only values differ) collapse to the newest; ComfyBench's own jobs are skipped."""
+    try:
+        r = requests.get(f"{server}/history", params={"max_items": max_items}, timeout=(5, 30))
+        r.raise_for_status()
+        hist = r.json() or {}
+    except (requests.ConnectionError, requests.Timeout):
+        return {"ok": False, "error": f"ComfyUI not reachable at {server}"}
+    except (requests.RequestException, ValueError) as e:
+        return {"ok": False, "error": f"ComfyUI at {server}: {e}"}
+    entries = []
+    for pid, e in hist.items():
+        p = e.get("prompt") if isinstance(e, dict) else None
+        if not isinstance(p, list) or len(p) < 3 or not isinstance(p[2], dict) or "nodes" in p[2]:
+            continue
+        wf = p[2]
+        nodes = [n for n in wf.values() if isinstance(n, dict)]
+        if any(str((n.get("inputs") or {}).get("filename_prefix", "")).startswith("comfybench/") for n in nodes):
+            continue
+        entries.append((p[0] if isinstance(p[0], (int, float)) else 0, str(pid), wf, e.get("status") or {}))
+    entries.sort(key=lambda x: x[0], reverse=True)
+    items, seen = [], {}
+    for _num, pid, wf, status in entries:
+        sig = json.dumps(sorted((nid, n.get("class_type"), sorted((k, v) for k, v in (n.get("inputs") or {}).items()
+                                                                  if isinstance(v, list)))
+                                for nid, n in wf.items() if isinstance(n, dict)))
+        if sig in seen:
+            seen[sig]["runs"] += 1
+            continue
+        try:
+            an = analyze_workflow(wf)
+        except Exception:
+            continue
+        text = ""
+        if an["suggest"].get("prompt"):
+            nid, _, inp = an["suggest"]["prompt"][0].partition("/")
+            text = wf[nid]["inputs"].get(inp, "")
+        files = [(n.get("class_type", ""), v) for n in wf.values() if isinstance(n, dict) and "Loader" in n.get("class_type", "")
+                 for v in (n.get("inputs") or {}).values() if isinstance(v, str) and v.lower().endswith(MODEL_EXT)]
+        # the diffusion model names the workflow best; text encoders, VAEs and LoRAs only as fallback
+        model = next((v for ct, v in files if re.search(r"checkpoint|unet|diffusion|gguf", ct, re.I)),
+                     files[0][1] if files else "")
+        start = next((m[1].get("timestamp") for m in status.get("messages") or []
+                      if isinstance(m, list) and len(m) > 1 and m[0] == "execution_start" and isinstance(m[1], dict)), None)
+        item = {"prompt_id": pid, "time": start, "status": status.get("status_str", ""),
+                "prompt": text if isinstance(text, str) else "", "model": model,
+                "nodes": len(an["nodes"]), "has_output": an["has_output"], "runs": 1, "workflow": wf}
+        seen[sig] = item
+        items.append(item)
+    return {"ok": True, "items": items}
+
+
 # ================================================================ run
 
 def parse_list(s):
@@ -2174,6 +2230,8 @@ def make_handler(args, runner) -> type[BaseHTTPRequestHandler]:
             if path == "/api/comfy/options":
                 refresh = "refresh=1" in (urlparse(self.path).query or "")
                 return self.send(200, json.dumps(comfy_options(load_yaml(args.config), refresh), ensure_ascii=False))
+            if path == "/api/comfy/history":
+                return self.send(200, json.dumps(comfy_history(resolve_server(load_yaml(args.config))), ensure_ascii=False))
             if path.startswith("/inputs/"):
                 f = (ROOT / "inputs" / path[len("/inputs/"):]).resolve()
                 if (ROOT / "inputs").resolve() in f.parents and f.is_file():

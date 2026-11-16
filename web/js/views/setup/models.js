@@ -7,6 +7,7 @@ import {nameRule, RE_NAME, RE_ID, clone} from "cb/util.js";
 import {Field, KvTable} from "cb/views/setup/field.js";
 import {specOf, setSpec, modesOf, curModel, markDirty, uploadWorkflow, applySuggestions} from "cb/views/setup/logic.js";
 import {Mapping, ensureAnalysis} from "cb/views/setup/mapping.js";
+import {importFromHistory} from "cb/views/setup/history.js";
 
 // ------------------------------------------------------------------ model list (:1208-1215)
 async function addModel(){
@@ -40,7 +41,7 @@ export function Models(){
       <button onClick=${addModel}>＋ Model</button>
     </div>
     <div class="su-edit">${m ? html`<${ModelEdit} id=${su.model} m=${m} />`
-      : html`<p class="hint">No model yet. Create one and upload a workflow for it (saved in ComfyUI via "Export (API)").</p>`}</div>
+      : html`<p class="hint">No model yet. Create one and upload a workflow for it (saved in ComfyUI via "Export (API)") or pick one from ComfyUI's history.</p>`}</div>
   </div>`;
 }
 
@@ -48,8 +49,8 @@ export function Models(){
 async function wfChange(mode, e){
   const su = state.setup, m = curModel(), el = e.currentTarget;
   let file = el.value;
-  if(file === "__upload"){
-    file = await uploadWorkflow();
+  if(file === "__upload" || file === "__history"){
+    file = await (file === "__upload" ? uploadWorkflow() : importFromHistory());
     if(!file){ el.value = (specOf(m, mode) || {}).file || ""; return; }
   }
   const sp = specOf(m, mode) || {file: "", map: {}};
@@ -194,6 +195,7 @@ function ModelEdit({id, m}){
             <option value="">– select –</option>
             ${su.data.files.workflows.map(f => html`<option value=${f} selected=${f === specOf(m, mode).file}>${f}</option>`)}
             <option value="__upload">Upload …</option>
+            <option value="__history">From ComfyUI history …</option>
           </select>
           <button class=${su.mode === mode ? "btn-p" : ""} onClick=${() => { su.mode = mode; update(); }}>
             Mapping${nmap ? ` (${nmap})` : ""}</button></div></td>

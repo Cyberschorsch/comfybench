@@ -69,6 +69,7 @@ Without Docker, set `COMFYBENCH_HOME=/path/to/data` to keep your data separate f
 
 1. Build and test the workflow in ComfyUI, then save it with **Workflow → Export (API)**.
 2. In **Setup → Models**, add a model and upload the file as the workflow for a mode (txt2img, img2img, …).
+   Shortcut: pick **From ComfyUI history …** instead and choose a workflow ComfyUI ran since its last start. The history already holds it in API format, so no export is needed. ComfyBench's own runs are left out, and re-runs of the same graph are shown once.
 3. ComfyBench analyzes the graph and suggests a mapping: seed, steps, cfg, sampler, scheduler and guidance from the sampler, width and height from the latent node, image and denoise for img2img. It finds the prompt text by tracing back from the sampler through switches, primitives and guiders. Review the suggestions; one value can feed several fields (e.g. `seed` into the sampler and an LLM node), and custom names such as `enhance` for a switch can be added.
 4. **Save**. This writes `config.yaml` and checks all workflows.
 
