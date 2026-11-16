@@ -24,8 +24,10 @@ export async function ensureAnalysis(){
 export function Mapping({id, m, mode, sp}){
   const su = state.setup;
   const file = sp ? sp.file : "";
-  useEffect(() => { if(file) ensureAnalysis(); }, [su.model, mode, file]);
   const an = file ? su.analysis[file] : null;
+  // `an` is a dependency: a save or discard reloads the setup and empties su.analysis,
+  // while model, mode and file stay the same – the analysis has to be fetched again then.
+  useEffect(() => { if(file && !an) ensureAnalysis(); }, [su.model, mode, file, an]);
   const keys = Object.keys(sp.map);
   const missing = keys.filter(k => !hasValue(m, k));
   const sum = keys.map(k => {
