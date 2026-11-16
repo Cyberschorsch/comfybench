@@ -1,7 +1,7 @@
-import {html} from "cb/vendor/htm-preact.js";
+import {html, useState, useRef, useEffect} from "cb/vendor/htm-preact.js";
 import {state, update, loadComfyOptions, comfyOpts, comfyLoras} from "cb/store.js";
 import {toast} from "cb/components/toast.js";
-import {uiConfirm, uiPrompt} from "cb/components/dialog.js";
+import {uiConfirm, uiPrompt, uiDialog} from "cb/components/dialog.js";
 import {OptSelect} from "cb/components/common.js";
 import {nameRule, RE_NAME, RE_ID, clone} from "cb/util.js";
 import {Field, KvTable} from "cb/views/setup/field.js";
@@ -62,10 +62,57 @@ async function wfChange(mode, e){
   }
 }
 
+// ------------------------------------------------------------------ mode picker
+// Modal with the three choices txt2img / img2img / custom – only "custom"
+// reveals the free-text field for the mode name.
+const MODE_KINDS = [
+  ["txt2img", "Text prompt → image"],
+  ["img2img", "Image → image"],
+  ["custom", "Any other mode, typed below"],
+];
+
+function AddModeDialog({close, taken}){
+  const [kind, setKind] = useState("img2img");
+  const [name, setName] = useState("");
+  const [err, setErr] = useState("");
+  const nameRef = useRef(null), pickRef = useRef(null);
+  // "custom" shows the free-text field and takes the focus; otherwise the
+  // selected choice holds it (on open the preselected one).
+  useEffect(() => {
+    if(kind === "custom"){ if(nameRef.current) nameRef.current.focus(); }
+    else if(pickRef.current){ const el = pickRef.current.querySelector("input:checked"); if(el) el.focus(); }
+  }, [kind]);
+  const submit = e => {
+    e.preventDefault();
+    const mode = kind === "custom" ? name.trim() : kind;
+    const msg = !mode ? "Please enter a name for the custom mode"
+      : nameRule(RE_NAME, "Letters, digits and _", taken)(mode);
+    if(msg){ setErr(msg); if(nameRef.current) nameRef.current.focus(); return; }
+    close(mode);
+  };
+  return html`<form method="dialog" onSubmit=${submit}>
+    <h3>Add workflow for a mode</h3>
+    <p class="hint">Which workflow do you add?</p>
+    <div class="dlg-pick" ref=${pickRef}>${MODE_KINDS.map(([v, hint]) => html`
+      <label class="rn-item${kind === v ? " on" : ""}">
+        <input type="radio" name="cb-mode" value=${v} checked=${kind === v}
+          onChange=${() => { setKind(v); setErr(""); }} />
+        <span><b>${v}</b><small>${hint}</small></span></label>`)}</div>
+    ${kind === "custom" ? html`<label class="dlg-l">Mode name
+      <input ref=${el => { nameRef.current = el; }} type="text" value=${name}
+        placeholder="e.g. inpaint" autocomplete="off" spellcheck="false"
+        onInput=${e => { setName(e.currentTarget.value); setErr(""); }} /></label>` : ""}
+    <div class="dlg-err">${err}</div>
+    <div class="dlg-btns">
+      <button type="button" data-close>Cancel</button>
+      <button class="btn-p">Add mode</button>
+    </div>
+  </form>`;
+}
+
 async function addMode(){
   const su = state.setup, m = curModel();
-  const mode = await uiPrompt("Mode", {value: "img2img", placeholder: "e.g. img2img, inpaint", ok: "Add mode",
-    validate: nameRule(RE_NAME, "Letters, digits and _")});
+  const mode = await uiDialog(close => html`<${AddModeDialog} close=${close} taken=${v => !!specOf(m, v)} />`);
   if(!mode) return;
   if(!specOf(m, mode)){
     if(mode === "txt2img") m.workflow = {file: "", map: {}};
