@@ -225,6 +225,11 @@ dialog.dlg::backdrop{background:rgba(0,0,0,.45)}
 .dlg input[type=text]:focus,.dlg select:focus,.dlg textarea:focus{outline:2px solid var(--accent-bg);border-color:var(--accent)}
 .dlg-err{color:var(--err);font-size:12.5px;min-height:1.3em;margin-top:6px}
 .dlg-btns{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+.dlg-pick{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.dlg-pick .rn-item{border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.dlg-pick .rn-item.on{border-color:var(--accent);background:var(--accent-bg)}
+.dlg-pick .rn-item b{font-weight:600}
+.dlg-pick+.dlg-l{margin-top:10px}
 .cb-hist{display:flex;flex-direction:column;gap:6px;margin-top:10px;max-height:60vh;overflow:auto}
 .cb-hist-item{display:block;text-align:left;width:100%;padding:8px 10px;white-space:normal}
 .cb-hist-item b{display:block;font-weight:500}

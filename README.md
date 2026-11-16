@@ -38,6 +38,12 @@ The example config runs `sdxl-base` with the bundled workflows (ComfyUI needs `s
 
 ![Gallery: all results](assets/gallery.png)
 
+**Setup** – add a workflow mode: pick txt2img, img2img or custom, only custom asks for the name:
+
+![Setup: choose the workflow mode](assets/setup-mode-dialog.png)
+
+![Setup: custom asks for the mode name](assets/setup-mode-dialog-custom.png)
+
 ### Docker
 
 ```bash
