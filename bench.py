@@ -1816,6 +1816,21 @@ def civitai_extract(item):
     return pos, neg, seed, model, params, (w, h)
 
 
+def civitai_prompt_id(pos, image_id):
+    """Default prompt id for an imported picture: the prompt's first distinct words + the image id,
+    e.g. "1girl-portrait-soft-light-12097475". Readable in every list, still unique per picture
+    (the same picture keeps the same id, so re-imports stay a no-op)."""
+    words, seen = [], set()
+    for w in re.findall(r"[A-Za-z0-9]+", (pos or "").lower()):
+        if w not in seen:
+            seen.add(w)
+            words.append(w)
+        if len(words) == 4:
+            break
+    slug = "-".join(words)[:40].strip("-_")   # empty for texts without latin letters/digits
+    return f"{slug or 'civitai'}-{image_id}"
+
+
 def civitai_read(url):
     """(image item, (pos, neg, seed, model, params, (w, h))) behind a picture URL.
     Raises BenchError when the uploader shared no prompt – nothing can be benchmarked then."""
@@ -1831,7 +1846,8 @@ def civitai_preview(url):
     item, (pos, neg, seed, model, params, (w, h)) = civitai_read(url)
     image_id = item.get("id")
     img = str(item.get("url") or "")
-    return {"url": f"https://{parse_civitai_url(url)[0]}/images/{image_id}", "prompt_id": f"civitai-{image_id}",
+    return {"url": f"https://{parse_civitai_url(url)[0]}/images/{image_id}",
+            "prompt_id": civitai_prompt_id(pos, image_id),
             "prompt": pos, "negative": neg or "", "seed": seed, "model": model or "",
             "params": {k: params[k] for k in CIVITAI_PROMPT_PARAMS if k in params},
             "width": w, "height": h,
@@ -1877,7 +1893,7 @@ def import_civitai(url, config_path, prompts_path, prompt_id=None, category=None
             "seconds": None, "at": dt.datetime.now().isoformat(timespec="seconds"), "source": source,
         })
         image_added = True
-    pid = prompt_id or f"civitai-{image_id}"
+    pid = prompt_id or civitai_prompt_id(pos, image_id)
     prompt_added = False
     doc = load_yaml(prompts_path)
     if not any(str(p.get("id")) == pid for p in doc.get("prompts") or []):

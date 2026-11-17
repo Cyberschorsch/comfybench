@@ -69,11 +69,14 @@ export function rnPromptsSec(){
         update();
       }} /><b>${c}</b> <small>${n}/${ps.length}</small></label>
         ${ps.map(p => { const v = rnBaseVariants(p);
+          const f = state.idx.imgByPrompt && state.idx.imgByPrompt.get(p.id);
+          const src = f ? fileUrl(f) : p.image ? "inputs/" + encodeURIComponent(p.image) : "";
           return html`<label class="rn-item rn-p"><input type="checkbox" data-rn-prompt=${p.id} checked=${selP.has(p.id)} onChange=${e => {
             const id = e.currentTarget.dataset.rnPrompt;
             ui.rnPrompts = e.currentTarget.checked ? [...new Set([...ui.rnPrompts, id])] : ui.rnPrompts.filter(x => x !== id);
             update();
-          }} /><span>${p.id}${v > 1 ? html` <small>×${v} variants</small>` : ""}${p.mode !== "txt2img" ? html` <span class="tag">${p.mode}</span>` : ""}</span></label>`; })}
+          }} />${src ? html`<img class="rn-thumb" loading="lazy" src=${src} alt="" title=${p.prompt} />` : ""}
+            <span>${p.id}${v > 1 ? html` <small>×${v} variants</small>` : ""}${p.mode !== "txt2img" ? html` <span class="tag">${p.mode}</span>` : ""}</span></label>`; })}
       </div>`;
     })}</div></div>`;
 }

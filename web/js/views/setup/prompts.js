@@ -1,6 +1,8 @@
 import {html, useRef} from "cb/vendor/htm-preact.js";
-import {state, update} from "cb/store.js";
+import {state, update, mLabel} from "cb/store.js";
 import {uiConfirm, uiPrompt} from "cb/components/dialog.js";
+import {fileUrl} from "cb/api.js";
+import {openLightbox} from "cb/views/lightbox.js";
 import {nameRule, RE_NAME, RE_ID, clone, renameKey} from "cb/util.js";
 import {VarChips} from "cb/components/common.js";
 import {Field, KvTable} from "cb/views/setup/field.js";
@@ -101,6 +103,13 @@ function renameVar(p, from, e){
   p.vars = renameKey(p.vars, from, to); markDirty("prompts");
 }
 
+// ------------------------------------------------------------------ latest results of a prompt (newest first)
+function latestResults(p){
+  return ((state.data && state.data.generations) || [])
+    .filter(g => g.prompt === p.id && g.status === "ok" && g.files && g.files.length)
+    .slice(-4).reverse();
+}
+
 // ------------------------------------------------------------------ editor (:1440-1482)
 function PromptEdit({p}){
   const su = state.setup;
@@ -122,7 +131,12 @@ function PromptEdit({p}){
                 : html`<${VarValues} p=${p} name=${n} defn=${d} />`}</td>
       <td style="width:30px"><button class="x" onClick=${() => delVar(p, n)}>✕</button></td></tr>`;
   });
+  const res = latestResults(p);
   return html`<h2>${p.id}</h2>
+    ${res.length ? html`<div class="row" style="margin:-4px 0 10px;gap:8px;align-items:flex-start">
+      ${res.map(g => html`<img class="thumb" style="cursor:pointer" loading="lazy" src=${fileUrl(g.files[0])} alt=""
+        title=${mLabel(g.model) + " · seed " + g.seed} onClick=${() => openLightbox(g.id)} />`)}
+      <span class="hint" style="margin-top:4px">latest result${res.length === 1 ? "" : "s"}${res.length === 4 ? ", newest first" : ""}</span></div>` : ""}
     <div class="su-grid">
       <label>ID</label><div><input type="text" key=${p.id} defaultValue=${p.id} onChange=${e => renamePrompt(p, e)} />
         <div class="hint">Renaming detaches the prompt from images already generated (they stay in the gallery).</div></div>

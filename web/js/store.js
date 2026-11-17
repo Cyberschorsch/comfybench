@@ -13,7 +13,7 @@ export const state = {
   run: { status: null, plan: null, planErr: "", lastDone: -1, lastReload: 0, swq: {}, imgKeys: {} },
   comfy: { data: null, loading: null },
   lb: { open: false, list: [], idx: 0 },
-  idx: { byCell: null, byId: null, modelMap: null, promptMap: null, loraCombos: [] },
+  idx: { byCell: null, byId: null, modelMap: null, promptMap: null, imgByPrompt: null, loraCombos: [] },
   page: {},             // transient per-cell page index for in-cell paging (not persisted)
   isStatic: false,
 };
@@ -60,10 +60,13 @@ export async function reloadData(){
 
 export function index(){
   const byCell = new Map(), byId = new Map();
+  // one representative image per prompt: the newest ok generation's first file
+  const imgByPrompt = new Map();
   const modelMap = new Map((state.data.models || []).map(m => [m.id, m]));
   const promptMap = new Map((state.data.prompts || []).map(p => [p.id, p]));
   (state.data.generations || []).forEach((g, i) => {
     g._i = i;
+    if(g.status === "ok" && g.files && g.files.length) imgByPrompt.set(g.prompt, g.files[0]);
     byId.set(g.id, g);
     const k = ck(g.model, g.prompt, g.variant_key || "", g.seed);
     if(!byCell.has(k)) byCell.set(k, []);
@@ -79,6 +82,7 @@ export function index(){
   state.idx.byId = byId;
   state.idx.modelMap = modelMap;
   state.idx.promptMap = promptMap;
+  state.idx.imgByPrompt = imgByPrompt;
   state.idx.loraCombos = [...new Set((state.data.generations || []).map(loraKey))]
     .sort((a, b) => (a === "none" ? -1 : b === "none" ? 1 : a.localeCompare(b)));
 }
