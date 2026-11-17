@@ -1,4 +1,5 @@
 import {api} from "cb/api.js";
+import {applyTitle} from "cb/title.js";
 
 const STORAGE = "cb2:state";
 
@@ -35,6 +36,9 @@ let scheduled = false;
 
 export function update(fn){
   if(fn) fn(state);
+  // Every poll, start and stop ends here, so the tab shows the run's progress
+  // from any view without the views having to carry it.
+  applyTitle(state.run.status);
   try { localStorage.setItem(STORAGE, JSON.stringify(state.ui)); } catch(e){}
   if(!scheduled && renderCb){
     scheduled = true;
