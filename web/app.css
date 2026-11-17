@@ -122,6 +122,7 @@ tfoot td:first-child{position:sticky;left:0;background:var(--bg)}
 .rn-item input{margin-top:3px}
 .rn-item small{display:block;color:var(--muted);font-size:12px}
 .rn-item.rn-p small{display:inline}
+.rn-thumb{width:28px;height:28px;object-fit:cover;border-radius:5px;border:1px solid var(--line);flex:none;margin-top:2px;background:var(--bg)}
 .rn-plist{max-height:340px;overflow:auto;padding-right:4px}
 .rn-cat{margin-bottom:6px}
 .rn-p{padding-left:22px}

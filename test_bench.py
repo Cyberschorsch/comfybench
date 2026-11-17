@@ -332,6 +332,32 @@ class T_civitai_extract(unittest.TestCase):
         self.assertEqual(params, {})
 
 
+class T_civitai_prompt_id(unittest.TestCase):
+    def test_slug_from_first_distinct_words_plus_image_id(self):
+        self.assertEqual(bench.civitai_prompt_id("1girl, portrait, soft light", 12097475),
+                         "1girl-portrait-soft-light-12097475")
+
+    def test_repeated_words_are_taken_once(self):
+        # pony-style score tags would otherwise dominate the slug
+        self.assertEqual(bench.civitai_prompt_id("score_9, score_9, masterpiece, 1girl", 7),
+                         "score-9-masterpiece-1girl-7")
+
+    def test_capped_at_four_words(self):
+        self.assertEqual(bench.civitai_prompt_id("a b c d e f g", 5), "a-b-c-d-5")
+
+    def test_long_words_truncated(self):
+        pid = bench.civitai_prompt_id("word " * 10, 5)
+        self.assertTrue(bench.SLUG.match(pid), pid)
+
+    def test_no_latin_words_falls_back(self):
+        self.assertEqual(bench.civitai_prompt_id("请生成一张图片", 9), "civitai-9")
+        self.assertEqual(bench.civitai_prompt_id("", 9), "civitai-9")
+
+    def test_deterministic_for_reimports(self):
+        self.assertEqual(bench.civitai_prompt_id("a portrait of a woman", 12),
+                         bench.civitai_prompt_id("a portrait of a woman", 12))
+
+
 class T_import_civitai(unittest.TestCase):
     """End-to-end: URL in → gallery record + prompts.yaml entry, against a temp data dir."""
 
@@ -394,7 +420,7 @@ class T_import_civitai(unittest.TestCase):
         res = self.run_import()
         self.assertTrue(res["image_added"])
         self.assertTrue(res["prompt_added"])
-        self.assertEqual(res["prompt_id"], "civitai-12097475")
+        self.assertEqual(res["prompt_id"], "1girl-portrait-soft-light-12097475")
         gens = bench.Store(self.tmp / "results").generations()
         self.assertEqual(len(gens), 1)
         g = gens[0]
@@ -409,7 +435,7 @@ class T_import_civitai(unittest.TestCase):
         self.assertTrue((self.tmp / "results" / g["files"][0]).is_file())   # files are relative to results/
         p = self.prompts_doc()["prompts"]
         self.assertEqual(len(p), 1)
-        self.assertEqual(p[0]["id"], "civitai-12097475")
+        self.assertEqual(p[0]["id"], "1girl-portrait-soft-light-12097475")
         self.assertEqual(p[0]["category"], "Civitai")
         self.assertEqual(p[0]["prompt"], "1girl, portrait, soft light")
         self.assertEqual(p[0]["negative"], "lowres")
@@ -430,7 +456,7 @@ class T_import_civitai(unittest.TestCase):
 
     def test_existing_prompt_id_is_kept(self):
         (self.tmp / "prompts.yaml").write_text(
-            "prompts:\n  - id: civitai-12097475\n    prompt: something else\n", encoding="utf-8")
+            "prompts:\n  - id: 1girl-portrait-soft-light-12097475\n    prompt: something else\n", encoding="utf-8")
         res = self.run_import()
         self.assertTrue(res["image_added"])
         self.assertFalse(res["prompt_added"])
@@ -454,7 +480,7 @@ class T_import_civitai(unittest.TestCase):
 
     def test_preview_has_no_side_effects(self):
         res = bench.civitai_preview("https://civitai.com/images/12097475")
-        self.assertEqual(res["prompt_id"], "civitai-12097475")
+        self.assertEqual(res["prompt_id"], "1girl-portrait-soft-light-12097475")
         self.assertEqual(res["url"], "https://civitai.com/images/12097475")
         self.assertEqual(res["prompt"], "1girl, portrait, soft light")
         self.assertEqual(res["negative"], "lowres")
@@ -502,7 +528,7 @@ class T_import_civitai(unittest.TestCase):
         self.assertFalse(res["image_added"])
         self.assertTrue(res["prompt_added"])
         self.assertEqual([p["id"] for p in self.prompts_doc()["prompts"]],
-                         ["civitai-12097475", "second-name"])
+                         ["1girl-portrait-soft-light-12097475", "second-name"])
 
 
 def history_wf(text="a cat", seed=1, ckpt="sdxl.safetensors", prefix="ComfyUI"):
